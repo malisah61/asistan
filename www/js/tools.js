@@ -251,6 +251,15 @@ export async function calistir(ad, arg, ctx) {
         '```\n' + ctx.gorev.gunluk.slice(-25).join('\n') + '\n```\n</details>\n\n_Asistan uygulaması tarafından açıldı._';
       const url = await gh.issueAc(arg.repo, arg.baslik, govde, 'claude');
       ctx.gorev.devredildi = url;
+      // Gece görevi devirleri tek yerden bulsun diye hafıza reposuna da yaz
+      try {
+        const yol = 'hafiza/devirler.md';
+        let liste = '';
+        try { liste = (await gh.dosyaOku(hafiza.repo, yol)).icerik; } catch { /* ilk devir */ }
+        liste = (liste || '# Claude\'a devredilen işler\n').trimEnd() +
+          `\n- [ ] ${new Date().toISOString().slice(0, 10)} ${arg.repo} — ${arg.baslik} — ${url}\n`;
+        await gh.dosyaYaz(hafiza.repo, yol, liste, 'hafıza: yeni devir');
+      } catch { /* issue açıldı; liste yazılamasa da gece görevi issue'yu bulabilir */ }
       return `Devredildi: ${url}. Kullanıcıya bunu bildir ve görevi bitir.`;
     }
     case 'ders_ekle':
