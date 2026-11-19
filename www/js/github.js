@@ -1,0 +1,159 @@
+// GitHub REST API sarmalayıcısı (token ile)
+
+const API = 'https://api.github.com';
+
+export function b64Encode(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+export function b64Decode(b64) {
+  const bin = atob(b64.replace(/\n/g, ''));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+export class GitHub {
+  constructor(token) {
+    this.token = token;
+  }
+
+  async istek(yol, { method = 'GET', body, ham = false } = {}) {
+    if (!this.token) throw new Error('Ayarlardan GitHub token gir.');
+    const r = await fetch(yol.startsWith('http') ? yol : API + yol, {
+      method,
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        Accept: ham ? 'application/vnd.github.raw+json' : 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const metin = await r.text();
+    if (!r.ok) {
+      const e = new Error(`GitHub ${r.status}: ${metin.slice(0, 300)}`);
+      e.status = r.status;
+      throw e;
+    }
+    if (ham) return metin;
+    return metin ? JSON.parse(metin) : {};
+  }
+
+  kullanici() {
+    return this.istek('/user');
+  }
+
+  async repolar() {
+    const r = await this.istek('/user/repos?per_page=100&sort=pushed');
+    return r.map((x) => ({ ad: x.full_name, ozel: x.private, dal: x.default_branch, aciklama: x.description }));
+  }
+
+  async varsayilanDal(repo) {
+    return (await this.istek(`/repos/${repo}`)).default_branch;
+  }
+
+  async agac(repo, ref) {
+    ref = ref || (await this.varsayilanDal(repo));
+    const r = await this.istek(`/repos/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`);
+    return r.tree.filter((t) => t.type === 'blob').map((t) => t.path);
+  }
+
+  async dosyaOku(repo, yol, ref) {
+    const q = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+    const r = await this.istek(`/repos/${repo}/contents/${encodeURI(yol)}${q}`);
+    if (Array.isArray(r)) return { klasor: true, icerik: r.map((x) => x.path) };
+    return { sha: r.sha, icerik: r.content ? b64Decode(r.content) : await this.istek(r.download_url, { ham: true }) };
+  }
+
+  async sha(repo, yol, dal) {
+    try {
+      return (await this.dosyaOku(repo, yol, dal)).sha;
+    } catch (e) {
+      if (e.status === 404) return undefined;
+      throw e;
+    }
+  }
+
+  async dosyaYaz(repo, yol, icerik, mesaj, dal) {
+    const sha = await this.sha(repo, yol, dal);
+    const body = { message: mesaj, content: b64Encode(icerik) };
+    if (sha) body.sha = sha;
+    if (dal) body.branch = dal;
+    const r = await this.istek(`/repos/${repo}/contents/${encodeURI(yol)}`, { method: 'PUT', body });
+    return r.commit?.html_url;
+  }
+
+  async dosyaSil(repo, yol, mesaj, dal) {
+    const sha = await this.sha(repo, yol, dal);
+    if (!sha) throw new Error('Dosya bulunamadı');
+    const body = { message: mesaj, sha };
+    if (dal) body.branch = dal;
+    await this.istek(`/repos/${repo}/contents/${encodeURI(yol)}`, { method: 'DELETE', body });
+  }
+
+  async dalOlustur(repo, yeni, kaynak) {
+    kaynak = kaynak || (await this.varsayilanDal(repo));
+    const ref = await this.istek(`/repos/${repo}/git/ref/heads/${encodeURIComponent(kaynak)}`);
+    await this.istek(`/repos/${repo}/git/refs`, {
+      method: 'POST',
+      body: { ref: `refs/heads/${yeni}`, sha: ref.object.sha },
+    });
+    return yeni;
+  }
+
+  async prAc(repo, baslik, aciklama, dal, hedef) {
+    hedef = hedef || (await this.varsayilanDal(repo));
+    const r = await this.istek(`/repos/${repo}/pulls`, {
+      method: 'POST',
+      body: { title: baslik, body: aciklama, head: dal, base: hedef },
+    });
+    return r.html_url;
+  }
+
+  async kodAra(repo, sorgu) {
+    const r = await this.istek(`/search/code?q=${encodeURIComponent(sorgu + ' repo:' + repo)}&per_page=20`);
+    return r.items.map((i) => i.path);
+  }
+
+  async calismalar(repo, dal) {
+    const q = dal ? `&branch=${encodeURIComponent(dal)}` : '';
+    const r = await this.istek(`/repos/${repo}/actions/runs?per_page=5${q}`);
+    return r.workflow_runs.map((w) => ({
+      id: w.id, ad: w.name, dal: w.head_branch, durum: w.status, sonuc: w.conclusion, url: w.html_url,
+    }));
+  }
+
+  async calismaHatalari(repo, runId) {
+    const r = await this.istek(`/repos/${repo}/actions/runs/${runId}/jobs`);
+    const ciktilar = [];
+    for (const job of r.jobs) {
+      const basarisiz = job.steps?.filter((s) => s.conclusion === 'failure').map((s) => s.name) || [];
+      let log = '';
+      if (job.conclusion === 'failure') {
+        try {
+          log = await this.istek(`/repos/${repo}/actions/jobs/${job.id}/logs`, { ham: true });
+          log = log.split('\n').slice(-120).join('\n'); // sondaki 120 satır yeterli
+        } catch (e) {
+          log = `(log alınamadı: ${e.message})`;
+        }
+      }
+      ciktilar.push({ is: job.name, sonuc: job.conclusion, basarisizAdimlar: basarisiz, log });
+    }
+    return ciktilar;
+  }
+
+  async calismaBaslat(repo, workflowDosyasi, dal) {
+    dal = dal || (await this.varsayilanDal(repo));
+    await this.istek(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflowDosyasi)}/dispatches`, {
+      method: 'POST',
+      body: { ref: dal },
+    });
+    return 'Başlatıldı';
+  }
+}

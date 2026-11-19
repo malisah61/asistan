@@ -1,0 +1,16 @@
+{
+  "name": "asistan",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Telefonda çalışan, GitHub'a bağlı, kendi derslerinden öğrenen kodlama asistanı",
+  "scripts": {
+    "check": "node --check www/js/llm.js && node --check www/js/github.js && node --check www/js/tools.js && node --check www/js/agent.js && node --check www/js/app.js"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0"
+  }
+}

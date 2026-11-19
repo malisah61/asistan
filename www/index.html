@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Asistan</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="baslik">
+      <b>Asistan</b>
+      <select id="repoSec" title="Aktif repo"><option value="">Repo seçilmedi</option></select>
+    </div>
+    <div class="ust-butonlar">
+      <button id="yeniSohbet" title="Yeni sohbet">＋</button>
+      <button id="dersBtn" title="Dersler">📚</button>
+      <button id="ayarBtn" title="Ayarlar">⚙</button>
+    </div>
+  </header>
+
+  <main id="sohbet"></main>
+
+  <div id="durum" hidden></div>
+
+  <footer>
+    <textarea id="giris" rows="1" placeholder="Ne yapalım? (örn. komando reposunda düşman görüş açısını düzelt)"></textarea>
+    <button id="gonder">➤</button>
+  </footer>
+
+  <!-- Ayarlar -->
+  <section id="ayarlar" class="panel" hidden>
+    <div class="panel-ic">
+      <h2>Ayarlar</h2>
+
+      <h3>GitHub</h3>
+      <label>Token (repo + workflow izinli)
+        <input id="ghToken" type="password" autocomplete="off" placeholder="github_pat_…" />
+      </label>
+      <label>Hafıza reposu (AGENTS.md ve dersler burada)
+        <input id="hafizaRepo" placeholder="malisah61/asistan" />
+      </label>
+
+      <h3>Modeller <small>(sıra = öncelik; limit dolunca sıradakine geçer)</small></h3>
+      <div id="saglayicilar"></div>
+
+      <h3>Davranış</h3>
+      <label class="satir"><input id="onayIste" type="checkbox" /> Yazma işlemlerinden önce onay iste</label>
+      <label class="satir"><input id="ozDeg" type="checkbox" /> Her görevden sonra ders çıkar</label>
+      <label>Görev başına en fazla adım
+        <input id="maksAdim" type="number" min="5" max="100" />
+      </label>
+
+      <div class="panel-alt">
+        <button id="ayarKaydet" class="ana">Kaydet</button>
+        <button id="ayarKapat">Kapat</button>
+      </div>
+      <p class="not">Anahtarlar yalnızca bu telefonda saklanır, hiçbir repoya yazılmaz.</p>
+    </div>
+  </section>
+
+  <!-- Dersler -->
+  <section id="dersler" class="panel" hidden>
+    <div class="panel-ic">
+      <h2>Öğrendikleri</h2>
+      <p class="not">Asistan her işten sonra buraya ders ekler ve sonraki işlerde bunları okur. Yanlış bir ders varsa düzeltip kaydet.</p>
+      <textarea id="dersMetin" rows="18"></textarea>
+      <div class="panel-alt">
+        <button id="dersKaydet" class="ana">Kaydet</button>
+        <button id="dersKapat">Kapat</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Onay -->
+  <section id="onay" class="panel" hidden>
+    <div class="panel-ic">
+      <h2 id="onayBaslik">Onay</h2>
+      <pre id="onayMetin"></pre>
+      <div class="panel-alt">
+        <button id="onayEvet" class="ana">İzin ver</button>
+        <button id="onayHayir">Reddet</button>
+      </div>
+    </div>
+  </section>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,149 @@
+:root {
+  --bg: #0f1115;
+  --kart: #181b22;
+  --kart2: #20242d;
+  --cizgi: #2c313c;
+  --yazi: #e6e8ec;
+  --soluk: #8b93a3;
+  --vurgu: #d97757;
+  --yesil: #5fb37a;
+  --kirmizi: #e06c6c;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--yazi);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+button {
+  background: var(--kart2);
+  color: var(--yazi);
+  border: 1px solid var(--cizgi);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 15px;
+}
+button.ana { background: var(--vurgu); border-color: var(--vurgu); color: #fff; }
+button:disabled { opacity: .5; }
+input, select, textarea {
+  width: 100%;
+  background: var(--kart2);
+  color: var(--yazi);
+  border: 1px solid var(--cizgi);
+  border-radius: 10px;
+  padding: 9px 10px;
+  font: inherit;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--cizgi);
+}
+.baslik { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.baslik b { font-size: 17px; }
+.baslik select { padding: 6px 8px; font-size: 13px; max-width: 60vw; }
+.ust-butonlar { display: flex; gap: 6px; }
+.ust-butonlar button { padding: 6px 10px; }
+
+main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mesaj {
+  max-width: 92%;
+  padding: 10px 12px;
+  border-radius: 14px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.mesaj.kullanici { align-self: flex-end; background: #2b3550; }
+.mesaj.asistan { align-self: flex-start; background: var(--kart); border: 1px solid var(--cizgi); }
+.mesaj.hata { align-self: flex-start; background: #3a1f22; border: 1px solid var(--kirmizi); }
+.mesaj .alt { color: var(--soluk); font-size: 12px; margin-top: 6px; }
+.mesaj code { background: #0006; padding: 1px 4px; border-radius: 4px; }
+.mesaj pre { background: #0008; padding: 8px; border-radius: 8px; overflow-x: auto; white-space: pre; }
+.mesaj a { color: #8ab4ff; }
+
+details.arac {
+  align-self: flex-start;
+  max-width: 92%;
+  font-size: 13px;
+  color: var(--soluk);
+  background: var(--kart);
+  border: 1px dashed var(--cizgi);
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+details.arac summary { cursor: pointer; }
+details.arac pre { white-space: pre-wrap; max-height: 260px; overflow: auto; color: var(--yazi); }
+
+.ders-notu { align-self: center; font-size: 12px; color: var(--yesil); }
+
+#durum {
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--soluk);
+  border-top: 1px solid var(--cizgi);
+}
+#durum::before { content: "● "; color: var(--vurgu); animation: nabiz 1s infinite; }
+@keyframes nabiz { 50% { opacity: .3; } }
+
+footer {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--cizgi);
+}
+footer textarea { resize: none; max-height: 140px; }
+footer button { background: var(--vurgu); border: none; color: #fff; font-size: 18px; min-width: 48px; }
+
+.panel {
+  position: fixed;
+  inset: 0;
+  background: #000a;
+  display: flex;
+  align-items: flex-end;
+  z-index: 10;
+}
+.panel-ic {
+  background: var(--kart);
+  width: 100%;
+  max-height: 92vh;
+  overflow-y: auto;
+  border-radius: 16px 16px 0 0;
+  padding: 16px;
+}
+.panel h2 { margin: 0 0 8px; }
+.panel h3 { margin: 18px 0 6px; font-size: 15px; }
+.panel h3 small { color: var(--soluk); font-weight: normal; }
+.panel label { display: block; margin: 8px 0; font-size: 13px; color: var(--soluk); }
+.panel label input, .panel label select { margin-top: 4px; }
+.panel label.satir { display: flex; align-items: center; gap: 8px; color: var(--yazi); font-size: 14px; }
+.panel label.satir input { width: auto; margin: 0; }
+.panel-alt { display: flex; gap: 8px; margin-top: 14px; }
+.panel-alt button { flex: 1; }
+.not { color: var(--soluk); font-size: 12px; }
+#onayMetin { white-space: pre-wrap; background: #0008; padding: 10px; border-radius: 8px; max-height: 55vh; overflow: auto; font-size: 12px; }
+
+.saglayici {
+  border: 1px solid var(--cizgi);
+  border-radius: 12px;
+  padding: 10px;
+  margin: 8px 0;
+}
+.saglayici .ust { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.saglayici .ust b { flex: 1; }
+.saglayici .ust button { padding: 4px 9px; font-size: 13px; }
+.saglayici a { color: #8ab4ff; font-size: 12px; }

@@ -1,0 +1,65 @@
+name: APK
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'hafiza/**'
+      - 'AGENTS.md'
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Bağımlılıklar
+        run: npm install
+
+      - name: JS sözdizimi kontrolü
+        run: npm run check
+
+      - name: Android projesi
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Sabit imza anahtarı (güncellemeler üstüne kurulsun diye)
+        run: |
+          mkdir -p ~/.android
+          cp keystore/debug.keystore ~/.android/debug.keystore
+
+      - name: APK derle
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../Asistan.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Asistan-apk
+          path: Asistan.apk
+
+      - name: "'son' sürümünü yayınla"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete son --yes --cleanup-tag || true
+          gh release create son Asistan.apk \
+            --title "Asistan (son sürüm)" \
+            --notes "Commit: ${GITHUB_SHA::7} — telefondan bu sayfadaki Asistan.apk dosyasını indirip kur."

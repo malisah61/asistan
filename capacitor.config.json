@@ -1,0 +1,11 @@
+{
+  "appId": "com.malisah.asistan",
+  "appName": "Asistan",
+  "webDir": "www",
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}
