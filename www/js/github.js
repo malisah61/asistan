@@ -86,7 +86,26 @@ export class GitHub {
     if (sha) body.sha = sha;
     if (dal) body.branch = dal;
     const r = await this.istek(`/repos/${repo}/contents/${encodeURI(yol)}`, { method: 'PUT', body });
+    this.sonCommit = r.commit?.sha;
     return r.commit?.html_url;
+  }
+
+  async issueAc(repo, baslik, govde, etiket) {
+    if (etiket) {
+      try {
+        await this.istek(`/repos/${repo}/labels`, {
+          method: 'POST',
+          body: { name: etiket, color: 'd97757', description: 'Asistan çözemedi, Claude devraldı' },
+        });
+      } catch (e) {
+        if (e.status !== 422) throw e; // 422 = etiket zaten var
+      }
+    }
+    const r = await this.istek(`/repos/${repo}/issues`, {
+      method: 'POST',
+      body: { title: baslik, body: govde, labels: etiket ? [etiket] : [] },
+    });
+    return r.html_url;
   }
 
   async dosyaSil(repo, yol, mesaj, dal) {
@@ -121,12 +140,17 @@ export class GitHub {
     return r.items.map((i) => i.path);
   }
 
-  async calismalar(repo, dal) {
-    const q = dal ? `&branch=${encodeURIComponent(dal)}` : '';
-    const r = await this.istek(`/repos/${repo}/actions/runs?per_page=5${q}`);
+  async calismalar(repo, dal, sha) {
+    const q = (dal ? `&branch=${encodeURIComponent(dal)}` : '') + (sha ? `&head_sha=${sha}` : '');
+    const r = await this.istek(`/repos/${repo}/actions/runs?per_page=10${q}`);
     return r.workflow_runs.map((w) => ({
-      id: w.id, ad: w.name, dal: w.head_branch, durum: w.status, sonuc: w.conclusion, url: w.html_url,
+      id: w.id, ad: w.name, dal: w.head_branch, sha: w.head_sha, durum: w.status, sonuc: w.conclusion, url: w.html_url,
     }));
+  }
+
+  async dalSonCommit(repo, dal) {
+    dal = dal || (await this.varsayilanDal(repo));
+    return (await this.istek(`/repos/${repo}/commits/${encodeURIComponent(dal)}`)).sha;
   }
 
   async calismaHatalari(repo, runId) {

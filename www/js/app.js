@@ -20,10 +20,17 @@ const VARSAYILAN = {
   sira: ['gemini', 'openrouter', 'groq'],
   onayIste: true,
   ozDeg: true,
-  maksAdim: 30,
+  planla: true,
+  gozdenGecir: true,
+  maksAdim: 40,
   aktifRepo: '',
+  roller: {
+    planlayici: { saglayici: 'gemini', model: 'gemini-2.5-pro' },
+    gozden: { saglayici: 'groq', model: 'openai/gpt-oss-120b' },
+  },
 };
 let ayar = { ...VARSAYILAN, ...oku('ayar', {}) };
+ayar.roller = { ...VARSAYILAN.roller, ...(ayar.roller || {}) };
 let kayit = oku('sohbet', []); // [{rol, metin, ...}]
 let calisiyor = false;
 let durdur = false;
@@ -69,6 +76,21 @@ function ekle(m, kaydet = true) {
     yaz('sohbet', kayit);
   }
 }
+
+function planGoster(maddeler) {
+  const kutu = $('planKutu');
+  if (!maddeler?.length) {
+    kutu.hidden = true;
+    return;
+  }
+  const biten = maddeler.filter((m) => m.durum === 'bitti').length;
+  $('planOzet').textContent = `Plan · ${biten}/${maddeler.length}`;
+  $('planListe').innerHTML = maddeler
+    .map((m) => `<li class="${kacis(m.durum || '')}">${kacis(m.metin)}</li>`).join('');
+  kutu.hidden = false;
+  if (!kutu.dataset.elle) kutu.open = true;
+}
+$('planKutu').addEventListener('toggle', (e) => { e.target.dataset.elle = '1'; });
 
 function durum(t) {
   const d = $('durum');
@@ -120,6 +142,8 @@ async function gonder() {
   calisiyor = true;
   durdur = false;
   $('gonder').textContent = '■';
+  planGoster([]);
+  delete $('planKutu').dataset.elle;
   const gh = new GitHub(ayar.ghToken);
   try {
     const hafiza = new Hafiza(gh, await hafizaReposu(gh));
@@ -131,6 +155,7 @@ async function gonder() {
       ui: {
         durum,
         onayla,
+        plan: planGoster,
         durdurulduMu: () => durdur,
         arac: (ad, arg, s) => ekle({ rol: 'arac', ad, arg: JSON.stringify(arg, null, 1).slice(0, 3000), sonuc: String(s).slice(0, 3000) }),
       },
@@ -139,7 +164,7 @@ async function gonder() {
 
     if (ayar.ozDeg && !durdur) {
       durum('Bu işten ders çıkarıyor…');
-      const ders = await ozDegerlendir({ ayar, hafiza, istek, cevap: sonuc.cevap, gunluk: sonuc.gunluk });
+      const ders = await ozDegerlendir({ ayar, hafiza, aktifRepo: ayar.aktifRepo, istek, cevap: sonuc.cevap, gorev: sonuc.gorev });
       if (ders) ekle({ rol: 'ders', metin: ders });
     }
   } catch (e) {
@@ -207,7 +232,13 @@ function formdanOku() {
   ayar.hafizaRepo = $('hafizaRepo').value.trim();
   ayar.onayIste = $('onayIste').checked;
   ayar.ozDeg = $('ozDeg').checked;
-  ayar.maksAdim = Number($('maksAdim').value) || 30;
+  ayar.planla = $('planla').checked;
+  ayar.gozdenGecir = $('gozdenGecir').checked;
+  ayar.maksAdim = Number($('maksAdim').value) || 40;
+  ayar.roller = {
+    planlayici: { saglayici: $('planSag').value, model: $('planModel').value.trim() },
+    gozden: { saglayici: $('gozSag').value, model: $('gozModel').value.trim() },
+  };
   document.querySelectorAll('[data-anahtar]').forEach((el) => { ayar.anahtar[el.dataset.anahtar] = el.value.trim(); });
   document.querySelectorAll('[data-model]').forEach((el) => { ayar.model[el.dataset.model] = el.value.trim(); });
 }
@@ -242,7 +273,15 @@ function ayarlariAc() {
   $('hafizaRepo').value = ayar.hafizaRepo;
   $('onayIste').checked = ayar.onayIste;
   $('ozDeg').checked = ayar.ozDeg;
+  $('planla').checked = ayar.planla;
+  $('gozdenGecir').checked = ayar.gozdenGecir;
   $('maksAdim').value = ayar.maksAdim;
+  const secenekler = Object.entries(PROVIDERS).map(([id, p]) => `<option value="${id}">${p.ad}</option>`).join('');
+  for (const [rol, sec, inp] of [['planlayici', 'planSag', 'planModel'], ['gozden', 'gozSag', 'gozModel']]) {
+    $(sec).innerHTML = secenekler;
+    $(sec).value = ayar.roller[rol]?.saglayici || 'gemini';
+    $(inp).value = ayar.roller[rol]?.model || '';
+  }
   saglayicilariCiz();
   $('ayarlar').hidden = false;
 }

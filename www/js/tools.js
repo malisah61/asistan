@@ -1,56 +1,177 @@
 // Asistanın kullanabildiği araçlar: tanımlar (modele gider) + çalıştırıcılar
 
+import { sohbet, jsonOnar } from './llm.js';
+import { sozdizimKontrol, diffUret, repoHaritasi, KONTROL_YML } from './kontrol.js';
+
 const fn = (name, description, properties = {}, required = []) => ({
   type: 'function',
   function: { name, description, parameters: { type: 'object', properties, required } },
 });
 const S = (description) => ({ type: 'string', description });
+const N = (description) => ({ type: 'integer', description });
+const B = (description) => ({ type: 'boolean', description });
 
 export const ARACLAR = [
   fn('repolari_listele', 'Kullanıcının GitHub repolarını listeler.'),
-  fn('dosya_agaci', 'Repodaki tüm dosya yollarını listeler. Kodu anlamaya buradan başla.',
+  fn('repo_haritasi', 'Repodaki dosyaları VE her kod dosyasındaki fonksiyon/sınıf tanımlarını satır numaralarıyla verir. Bir repoda işe başlarken İLK bunu çağır.',
+    { repo: S('sahip/repo'), dal: S('dal (boşsa varsayılan)') }, ['repo']),
+  fn('dosya_agaci', 'Repodaki tüm dosya yollarını listeler (tanımsız, yalnızca yollar).',
     { repo: S('sahip/repo'), dal: S('dal adı (boşsa varsayılan dal)') }, ['repo']),
-  fn('dosya_oku', 'Bir dosyanın içeriğini okur. Değiştirmeden önce mutlaka oku.',
-    { repo: S('sahip/repo'), yol: S('dosya yolu'), dal: S('dal (isteğe bağlı)') }, ['repo', 'yol']),
+  fn('dosya_oku', 'Dosyayı satır numaralarıyla okur. Büyük dosyalarda haritadaki satır numaralarına göre baslangic/bitis ver; tamamını okuma.',
+    { repo: S('sahip/repo'), yol: S('dosya yolu'), dal: S('dal (isteğe bağlı)'), baslangic: N('ilk satır (isteğe bağlı)'), bitis: N('son satır (isteğe bağlı)') },
+    ['repo', 'yol']),
   fn('kod_ara', 'Repoda metin/kod arar (GitHub kod arama, varsayılan dalda çalışır).',
     { repo: S('sahip/repo'), sorgu: S('aranacak metin') }, ['repo', 'sorgu']),
+  fn('plan_guncelle', 'Görevin yapılacaklar listesini yazar/günceller. İşe başlarken maddele, her madde bitince durumunu "bitti" yap. Aynı anda yalnızca bir madde "suruyor" olsun.',
+    {
+      maddeler: {
+        type: 'array',
+        items: { type: 'object', properties: { metin: S('madde'), durum: { type: 'string', enum: ['bekliyor', 'suruyor', 'bitti'] } }, required: ['metin', 'durum'] },
+      },
+    }, ['maddeler']),
   fn('dal_olustur', 'Değişiklikler için yeni bir dal açar. Ana dala doğrudan yazmak yerine bunu kullan.',
     { repo: S('sahip/repo'), dal: S('yeni dal adı, örn. asistan/ozellik-adi'), kaynak: S('kaynak dal (boşsa varsayılan)') },
     ['repo', 'dal']),
-  fn('dosya_yaz', 'Bir dosyayı oluşturur ya da TAMAMEN yeni içerikle değiştirir ve commit atar. İçeriğin tamamını ver, kısaltma yapma.',
-    { repo: S('sahip/repo'), yol: S('dosya yolu'), icerik: S('dosyanın tam yeni içeriği'), mesaj: S('commit mesajı'), dal: S('hedef dal') },
-    ['repo', 'yol', 'icerik', 'mesaj', 'dal']),
-  fn('dosya_duzenle', 'Dosyada tam eşleşen bir metni yenisiyle değiştirip commit atar. Küçük değişikliklerde dosya_yaz yerine bunu kullan.',
-    { repo: S('sahip/repo'), yol: S('dosya yolu'), eski: S('dosyada TAM olarak bir kez geçen metin'), yeni: S('yerine gelecek metin'), mesaj: S('commit mesajı'), dal: S('hedef dal') },
+  fn('dosya_duzenle', 'Dosyada TAM eşleşen bir metni yenisiyle değiştirip commit atar. Küçük değişikliklerde bunu kullan. Commit öncesi sözdizimi kontrolü ve gözden geçirme yapılır.',
+    { repo: S('sahip/repo'), yol: S('dosya yolu'), eski: S('dosyada TAM olarak bir kez geçen metin (satır numarası olmadan)'), yeni: S('yerine gelecek metin'), mesaj: S('commit mesajı'), dal: S('hedef dal'), zorla: B('gözden geçirmenin itirazı yanlışsa true') },
     ['repo', 'yol', 'eski', 'yeni', 'mesaj', 'dal']),
+  fn('dosya_yaz', 'Dosyayı oluşturur ya da TAMAMEN yeni içerikle değiştirir ve commit atar. İçeriğin tamamını ver, "…" ile kısaltma yapma.',
+    { repo: S('sahip/repo'), yol: S('dosya yolu'), icerik: S('dosyanın tam yeni içeriği'), mesaj: S('commit mesajı'), dal: S('hedef dal'), zorla: B('gözden geçirmenin itirazı yanlışsa true') },
+    ['repo', 'yol', 'icerik', 'mesaj', 'dal']),
   fn('dosya_sil', 'Dosyayı siler.',
     { repo: S('sahip/repo'), yol: S('dosya yolu'), mesaj: S('commit mesajı'), dal: S('hedef dal') },
     ['repo', 'yol', 'mesaj', 'dal']),
+  fn('kontrol_bekle', 'Son commit için GitHub Actions (build/test/kontrol) bitene kadar bekler ve sonucu, başarısızsa hata loglarını verir. Her commit grubundan sonra çağır.',
+    { repo: S('sahip/repo'), dal: S('dal') }, ['repo', 'dal']),
+  fn('kontrol_kur', 'Repoda .github/workflows/kontrol.yml yoksa ekler (JS/JSON/Python/GDScript sözdizimi, C# derleme, npm test). Geri bildirim döngüsü için gerekli.',
+    { repo: S('sahip/repo'), dal: S('hedef dal') }, ['repo', 'dal']),
   fn('pr_ac', 'Daldaki değişiklikler için Pull Request açar.',
     { repo: S('sahip/repo'), baslik: S('PR başlığı'), aciklama: S('ne değişti, nasıl test edildi'), dal: S('değişiklik dalı'), hedef: S('hedef dal (boşsa varsayılan)') },
     ['repo', 'baslik', 'aciklama', 'dal']),
-  fn('actions_durum', 'Son GitHub Actions çalışmalarını (build/test) ve sonuçlarını gösterir.',
+  fn('actions_durum', 'Son GitHub Actions çalışmalarını ve sonuçlarını gösterir.',
     { repo: S('sahip/repo'), dal: S('dal (isteğe bağlı)') }, ['repo']),
-  fn('actions_hata', 'Başarısız bir Actions çalışmasının hata loglarını getirir. Build kırıldıysa nedenini buradan bul.',
+  fn('actions_hata', 'Başarısız bir Actions çalışmasının hata loglarını getirir.',
     { repo: S('sahip/repo'), calisma_id: S('çalışma id') }, ['repo', 'calisma_id']),
   fn('actions_baslat', 'workflow_dispatch destekleyen bir workflow\'u başlatır.',
     { repo: S('sahip/repo'), workflow: S('workflow dosya adı, örn. apk.yml'), dal: S('dal') }, ['repo', 'workflow']),
-  fn('ders_ekle', 'Gelecekte daha iyi çalışmak için kalıcı bir ders kaydeder (hata, çözüm, kullanıcının tercihi). Kısa ve genel yaz.',
-    { ders: S('tek cümlelik ders') }, ['ders']),
+  fn('danis', 'Takıldığında daha güçlü planlayıcı modele danışır. Ne denediğini, hatayı ve ilgili kodu soruya yaz.',
+    { soru: S('ayrıntılı soru') }, ['soru']),
+  fn('claudea_devret', 'Üç denemede de çözemediğin ya da senin için fazla zor bir işi Claude\'a devreder: repoda "claude" etiketli issue açar. Gece çalışan görev bunu çözer.',
+    { repo: S('sahip/repo'), baslik: S('kısa başlık'), aciklama: S('istenen iş, denediklerin, son hata, ilgili dosyalar, varsa dal adı') },
+    ['repo', 'baslik', 'aciklama']),
+  fn('ders_ekle', 'Gelecekte daha iyi çalışmak için kalıcı bir ders kaydeder (hata, çözüm, kullanıcı tercihi). Kısa ve genel yaz.',
+    { ders: S('tek cümlelik ders'), kapsam: { type: 'string', enum: ['genel', 'repo'], description: 'genel: her işte geçerli; repo: yalnızca bu repoya özgü' }, etiketler: { type: 'array', items: { type: 'string' }, description: 'örn. ["godot","csharp"]' }, repo: S('kapsam repo ise sahip/repo') },
+    ['ders']),
 ];
 
-const YAZMA = new Set(['dosya_yaz', 'dosya_duzenle', 'dosya_sil', 'pr_ac', 'actions_baslat', 'dal_olustur']);
+export const ARAC_ADLARI = new Set(ARACLAR.map((a) => a.function.name));
+
+const YAZMA = new Set(['dosya_yaz', 'dosya_duzenle', 'dosya_sil', 'pr_ac', 'actions_baslat', 'dal_olustur', 'kontrol_kur', 'claudea_devret']);
 const MAKS = 15000;
+const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const kisalt = (s) => (s.length > MAKS ? s.slice(0, MAKS) + `\n…(${s.length - MAKS} karakter kesildi)` : s);
+const kisalt = (s) => (s.length > MAKS ? s.slice(0, MAKS) + `\n…(${s.length - MAKS} karakter kesildi; baslangic/bitis ile parça parça oku)` : s);
 
-export async function calistir(ad, arg, { gh, onayla, hafiza, ayar }) {
+async function eskiIcerik(gh, repo, yol, dal) {
+  try {
+    return (await gh.dosyaOku(repo, yol, dal)).icerik;
+  } catch (e) {
+    if (e.status === 404) return '';
+    throw e;
+  }
+}
+
+/** Commit öncesi: sözdizimi + bağımsız gözden geçirme. Engel varsa açıklama döner. */
+async function yazmadanOnce(ctx, { repo, yol, eski, yeni, zorla }) {
+  const hata = sozdizimKontrol(yol, yeni);
+  if (hata) return `COMMIT YAPILMADI — sözdizimi hatası: ${hata}\nDüzeltip tekrar dene.`;
+
+  if (!ctx.ayar.gozdenGecir || zorla) return null;
+  const diff = diffUret(eski, yeni);
+  try {
+    const { message } = await sohbet(ctx.ayar, [
+      {
+        role: 'system',
+        content: 'Kıdemli bir yazılımcı olarak bir kod değişikliğini gözden geçiriyorsun. Yalnızca GERÇEK hatalara itiraz et: ' +
+          'çalışmayacak kod, yanlış değişken/fonksiyon adı, sözdizimi, mantık hatası, silinmiş ama hâlâ kullanılan kod, isteği karşılamama, ' +
+          'yarım bırakılmış ("…", "TODO", "kalanı aynı") kod. Stil tercihlerine itiraz etme. Yalnızca JSON döndür: ' +
+          '{"onay": true} ya da {"onay": false, "sorunlar": ["…"]}',
+      },
+      { role: 'user', content: `Görev: ${ctx.gorev.istek}\nDosya: ${yol}\n\nDiff:\n${diff}` },
+    ], null, ctx.durum, 'gozden');
+    const v = jsonOnar(message.content);
+    if (v && v.onay === false && v.sorunlar?.length) {
+      return `COMMIT YAPILMADI — gözden geçiren model itiraz etti:\n- ${v.sorunlar.join('\n- ')}\n` +
+        'Haklıysa düzeltip tekrar dene. İtiraz yanlışsa aynı çağrıyı zorla:true ile yap.';
+    }
+  } catch {
+    // Gözden geçiren model ulaşılamıyorsa işi durdurma
+  }
+  return null;
+}
+
+async function kontrolBekle(ctx, { repo, dal }) {
+  const { gh } = ctx;
+  const sha = ctx.gorev.sonSha[`${repo}#${dal}`] || (await gh.dalSonCommit(repo, dal));
+  const bitis = Date.now() + 10 * 60_000;
+  let bulundu = false;
+  while (Date.now() < bitis) {
+    if (ctx.durdurulduMu()) return 'Kullanıcı durdurdu.';
+    const runs = await gh.calismalar(repo, null, sha);
+    if (runs.length) bulundu = true;
+    const suren = runs.filter((r) => r.durum !== 'completed');
+    if (bulundu && !suren.length) {
+      const basarisiz = runs.filter((r) => !['success', 'skipped', 'neutral'].includes(r.sonuc));
+      if (!basarisiz.length) {
+        ctx.gorev.kontrolHata = 0;
+        return `✅ Tüm kontroller geçti (${runs.map((r) => r.ad).join(', ')}).`;
+      }
+      ctx.gorev.kontrolHata = (ctx.gorev.kontrolHata || 0) + 1;
+      const detay = [];
+      for (const r of basarisiz.slice(0, 2)) {
+        detay.push(`## ${r.ad} (${r.sonuc}) ${r.url}\n` + JSON.stringify(await gh.calismaHatalari(repo, r.id), null, 1));
+      }
+      let not = `❌ ${basarisiz.length} kontrol başarısız (deneme ${ctx.gorev.kontrolHata}/3).\n`;
+      if (ctx.gorev.kontrolHata >= 3) not += 'Üç kez başarısız oldu: yaklaşımını değiştir, danis aracını kullan ya da claudea_devret ile devret.\n';
+      return kisalt(not + detay.join('\n\n'));
+    }
+    if (!bulundu && Date.now() > bitis - 9 * 60_000) {
+      return 'Bu commit için hiçbir Actions çalışması başlamadı. Repoda kontrol workflow\'u yoksa kontrol_kur ile ekle.';
+    }
+    ctx.durum(bulundu ? `Actions sürüyor: ${suren.map((r) => r.ad).join(', ')}…` : 'Actions\'ın başlaması bekleniyor…');
+    await uyu(15_000);
+  }
+  return 'Zaman aşımı: kontroller 10 dakikada bitmedi. Daha sonra actions_durum ile bak.';
+}
+
+export async function calistir(ad, arg, ctx) {
+  const { gh, onayla, hafiza, ayar } = ctx;
+
+  // Yazma işlemleri: önce hazırla ve kontrol et, sonra kullanıcıdan onay al
+  let yeniIcerik, eski;
+  if (ad === 'dosya_duzenle' || ad === 'dosya_yaz') {
+    eski = await eskiIcerik(gh, arg.repo, arg.yol, arg.dal);
+    if (ad === 'dosya_duzenle') {
+      if (!eski) return 'HATA: dosya bulunamadı ya da boş. Yeni dosya için dosya_yaz kullan.';
+      const temiz = (arg.eski || '').replace(/^\d+\t/gm, ''); // modeller bazen satır numaralarını da kopyalıyor
+      const adet = eski.split(temiz).length - 1;
+      if (adet === 0) return 'HATA: "eski" metin dosyada bulunamadı. Dosyanın o bölümünü yeniden oku; boşluk, girinti ve satır sonlarını aynen kopyala.';
+      if (adet > 1) return `HATA: "eski" metin ${adet} kez geçiyor. Daha fazla çevre satır ekleyerek benzersiz yap.`;
+      yeniIcerik = eski.replace(temiz, () => arg.yeni);
+    } else {
+      yeniIcerik = arg.icerik ?? '';
+      if (/^\s*(\/\/|#)\s*(\.\.\.|…)|^\s*(\.\.\.|…)\s*$|(\/\/|#)\s*(kalan[ıi]? aynı|geri kalan|rest of)/im.test(yeniIcerik) && eski.length > yeniIcerik.length * 1.5) {
+        return 'HATA: içerik kısaltılmış görünüyor ve eski dosyadan çok daha kısa. dosya_yaz tam içerik ister; küçük değişiklik için dosya_duzenle kullan.';
+      }
+    }
+    const engel = await yazmadanOnce(ctx, { repo: arg.repo, yol: arg.yol, eski, yeni: yeniIcerik, zorla: arg.zorla });
+    if (engel) return engel;
+  }
+
   if (YAZMA.has(ad) && ayar.onayIste) {
-    const ozet = ad === 'dosya_duzenle'
-      ? `${arg.repo}/${arg.yol} (${arg.dal})\n— ESKİ —\n${arg.eski}\n— YENİ —\n${arg.yeni}`
-      : ad === 'dosya_yaz'
-        ? `${arg.repo}/${arg.yol} (${arg.dal}) — ${arg.icerik?.length || 0} karakter\n${(arg.icerik || '').slice(0, 1500)}`
-        : JSON.stringify(arg, null, 2);
+    const ozet = yeniIcerik !== undefined
+      ? `${arg.repo}/${arg.yol} (${arg.dal})\n${arg.mesaj}\n\n${diffUret(eski, yeniIcerik)}`
+      : JSON.stringify(arg, null, 2);
     const ok = await onayla(ad, ozet);
     if (!ok) return 'Kullanıcı bu işlemi reddetti. Neden reddedilmiş olabileceğini düşün, gerekirse kullanıcıya sor.';
   }
@@ -58,33 +179,57 @@ export async function calistir(ad, arg, { gh, onayla, hafiza, ayar }) {
   switch (ad) {
     case 'repolari_listele':
       return JSON.stringify(await gh.repolar());
-    case 'dosya_agaci': {
-      const yollar = await gh.agac(arg.repo, arg.dal);
-      return kisalt(yollar.join('\n'));
-    }
+    case 'repo_haritasi':
+      return await repoHaritasi(gh, arg.repo, arg.dal, { durum: ctx.durum });
+    case 'dosya_agaci':
+      return kisalt((await gh.agac(arg.repo, arg.dal)).join('\n'));
     case 'dosya_oku': {
       const r = await gh.dosyaOku(arg.repo, arg.yol, arg.dal);
       if (r.klasor) return 'Bu bir klasör:\n' + r.icerik.join('\n');
-      const satirli = r.icerik.split('\n').map((l, i) => `${i + 1}\t${l}`).join('\n');
-      return kisalt(satirli);
+      const satirlar = r.icerik.split('\n');
+      const bas = Math.max(1, Number(arg.baslangic) || 1);
+      const son = Math.min(satirlar.length, Number(arg.bitis) || satirlar.length);
+      const parca = satirlar.slice(bas - 1, son).map((l, i) => `${bas + i}\t${l}`).join('\n');
+      const baslik = bas > 1 || son < satirlar.length ? `(${satirlar.length} satırın ${bas}-${son} arası)\n` : '';
+      return kisalt(baslik + parca);
     }
     case 'kod_ara':
       return JSON.stringify(await gh.kodAra(arg.repo, arg.sorgu));
+    case 'plan_guncelle': {
+      const maddeler = (Array.isArray(arg.maddeler) ? arg.maddeler : [])
+        .map((m) => (typeof m === 'string' ? { metin: m, durum: 'bekliyor' } : m))
+        .filter((m) => m?.metin);
+      ctx.gorev.plan = maddeler;
+      ctx.plan?.(maddeler);
+      const kalan = maddeler.filter((m) => m.durum !== 'bitti').length;
+      return `Plan güncellendi: ${maddeler.length - kalan}/${maddeler.length} bitti.`;
+    }
     case 'dal_olustur':
-      return 'Dal açıldı: ' + (await gh.dalOlustur(arg.repo, arg.dal, arg.kaynak));
+      try {
+        return 'Dal açıldı: ' + (await gh.dalOlustur(arg.repo, arg.dal, arg.kaynak));
+      } catch (e) {
+        if (e.status === 422) return `Dal zaten var: ${arg.dal}. Bu dala yazmaya devam edebilirsin.`;
+        throw e;
+      }
     case 'dosya_yaz':
-      return 'Commit: ' + (await gh.dosyaYaz(arg.repo, arg.yol, arg.icerik, arg.mesaj, arg.dal));
     case 'dosya_duzenle': {
-      const { icerik } = await gh.dosyaOku(arg.repo, arg.yol, arg.dal);
-      const adet = icerik.split(arg.eski).length - 1;
-      if (adet === 0) return 'HATA: "eski" metin dosyada bulunamadı. Dosyayı yeniden oku, boşluk ve girintiye dikkat et.';
-      if (adet > 1) return `HATA: "eski" metin ${adet} kez geçiyor. Daha fazla çevre satır ekleyerek benzersiz yap.`;
-      const yeni = icerik.replace(arg.eski, () => arg.yeni);
-      return 'Commit: ' + (await gh.dosyaYaz(arg.repo, arg.yol, yeni, arg.mesaj, arg.dal));
+      const url = await gh.dosyaYaz(arg.repo, arg.yol, yeniIcerik, arg.mesaj, arg.dal);
+      ctx.gorev.sonSha[`${arg.repo}#${arg.dal}`] = gh.sonCommit;
+      return `Commit: ${url}\nİlgili tüm değişiklikler bitince kontrol_bekle çağır.`;
     }
     case 'dosya_sil':
       await gh.dosyaSil(arg.repo, arg.yol, arg.mesaj, arg.dal);
+      ctx.gorev.sonSha[`${arg.repo}#${arg.dal}`] = undefined;
       return 'Silindi';
+    case 'kontrol_bekle':
+      return await kontrolBekle(ctx, arg);
+    case 'kontrol_kur': {
+      const yol = '.github/workflows/kontrol.yml';
+      if (await eskiIcerik(gh, arg.repo, yol, arg.dal)) return 'kontrol.yml zaten var.';
+      await gh.dosyaYaz(arg.repo, yol, KONTROL_YML, 'kontrol workflow eklendi (asistan geri bildirim döngüsü)', arg.dal);
+      ctx.gorev.sonSha[`${arg.repo}#${arg.dal}`] = gh.sonCommit;
+      return 'kontrol.yml eklendi. Bu daldaki her push artık otomatik kontrol edilecek.';
+    }
     case 'pr_ac':
       return 'PR: ' + (await gh.prAc(arg.repo, arg.baslik, arg.aciklama, arg.dal, arg.hedef));
     case 'actions_durum':
@@ -93,10 +238,25 @@ export async function calistir(ad, arg, { gh, onayla, hafiza, ayar }) {
       return kisalt(JSON.stringify(await gh.calismaHatalari(arg.repo, arg.calisma_id), null, 1));
     case 'actions_baslat':
       return await gh.calismaBaslat(arg.repo, arg.workflow, arg.dal);
+    case 'danis': {
+      const plan = ctx.gorev.plan?.length ? '\nPlan:\n' + ctx.gorev.plan.map((m) => `[${m.durum}] ${m.metin}`).join('\n') : '';
+      const { message, model } = await sohbet(ayar, [
+        { role: 'system', content: 'Deneyimli bir yazılım mimarısın. Takılan bir kodlama ajanına somut, uygulanabilir ve kısa cevap ver. Emin değilsen bunu söyle.' },
+        { role: 'user', content: `Görev: ${ctx.gorev.istek}${plan}\n\nSon adımlar:\n${ctx.gorev.gunluk.slice(-12).join('\n')}\n\nSoru:\n${arg.soru}` },
+      ], null, ctx.durum, 'planlayici');
+      return `(${model} cevabı)\n${message.content || '(boş)'}`;
+    }
+    case 'claudea_devret': {
+      const govde = `${arg.aciklama}\n\n---\n**İstek:** ${ctx.gorev.istek}\n\n<details><summary>Asistan günlüğü</summary>\n\n` +
+        '```\n' + ctx.gorev.gunluk.slice(-25).join('\n') + '\n```\n</details>\n\n_Asistan uygulaması tarafından açıldı._';
+      const url = await gh.issueAc(arg.repo, arg.baslik, govde, 'claude');
+      ctx.gorev.devredildi = url;
+      return `Devredildi: ${url}. Kullanıcıya bunu bildir ve görevi bitir.`;
+    }
     case 'ders_ekle':
-      await hafiza.dersEkle(arg.ders);
+      await hafiza.dersEkle(arg.ders, { kapsam: arg.kapsam, etiketler: arg.etiketler, repo: arg.repo || ctx.aktifRepo });
       return 'Ders kaydedildi.';
     default:
-      return `Bilinmeyen araç: ${ad}`;
+      return `Bilinmeyen araç: ${ad}. Kullanılabilenler: ${[...ARAC_ADLARI].join(', ')}`;
   }
 }

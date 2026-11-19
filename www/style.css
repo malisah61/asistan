@@ -147,3 +147,22 @@ footer button { background: var(--vurgu); border: none; color: #fff; font-size: 
 .saglayici .ust b { flex: 1; }
 .saglayici .ust button { padding: 4px 9px; font-size: 13px; }
 .saglayici a { color: #8ab4ff; font-size: 12px; }
+
+#planKutu {
+  margin: 8px 12px 0;
+  background: var(--kart);
+  border: 1px solid var(--cizgi);
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+#planKutu summary { cursor: pointer; font-weight: 600; }
+#planListe { margin: 6px 0 0; padding-left: 22px; }
+#planListe li { margin: 3px 0; color: var(--soluk); }
+#planListe li.suruyor { color: var(--yazi); font-weight: 600; }
+#planListe li.bitti { color: var(--yesil); text-decoration: line-through; }
+
+.rol { border: 1px solid var(--cizgi); border-radius: 12px; padding: 10px; margin: 8px 0; }
+.rol small { color: var(--soluk); }
+.iki { display: flex; gap: 6px; margin-top: 6px; }
+.iki select { flex: 0 0 38%; }

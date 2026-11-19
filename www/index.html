@@ -19,6 +19,11 @@
     </div>
   </header>
 
+  <details id="planKutu" hidden>
+    <summary id="planOzet">Plan</summary>
+    <ol id="planListe"></ol>
+  </details>
+
   <main id="sohbet"></main>
 
   <div id="durum" hidden></div>
@@ -44,7 +49,19 @@
       <h3>Modeller <small>(sıra = öncelik; limit dolunca sıradakine geçer)</small></h3>
       <div id="saglayicilar"></div>
 
+      <h3>Roller <small>(en güçlü modeli düşünme işlerine ayır)</small></h3>
+      <div class="rol">
+        <b>🧠 Planlayıcı</b> <small>plan çıkarır, takılınca danışılır</small>
+        <div class="iki"><select id="planSag"></select><input id="planModel" placeholder="model" /></div>
+      </div>
+      <div class="rol">
+        <b>🔍 Gözden geçiren</b> <small>her commit'i kontrol eder, ders çıkarır</small>
+        <div class="iki"><select id="gozSag"></select><input id="gozModel" placeholder="model" /></div>
+      </div>
+
       <h3>Davranış</h3>
+      <label class="satir"><input id="planla" type="checkbox" /> Görevden önce plan çıkar</label>
+      <label class="satir"><input id="gozdenGecir" type="checkbox" /> Commit öncesi gözden geçir</label>
       <label class="satir"><input id="onayIste" type="checkbox" /> Yazma işlemlerinden önce onay iste</label>
       <label class="satir"><input id="ozDeg" type="checkbox" /> Her görevden sonra ders çıkar</label>
       <label>Görev başına en fazla adım

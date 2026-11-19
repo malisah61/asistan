@@ -4,6 +4,15 @@ Telefonda çalışan bir kodlama asistanı. GitHub repolarını okuyup yazabiliy
 
 - **Beyin:** Gemini, OpenRouter ve Groq'un ücretsiz modelleri. Birinin limiti dolunca otomatik olarak sıradakine geçiyor.
 - **Stil:** `AGENTS.md`. Asistan her görevde bunu okuyor, değiştirmek için yeni APK gerekmiyor.
+- **Gücü artıran düzen:**
+  1. *Geri bildirim döngüsü:* her commit'ten sonra Actions'ı bekler (`kontrol.yml` yoksa kendisi ekler), hata varsa logu okuyup en fazla 3 kez düzeltir.
+  2. *Planlayıcı / uygulayıcı:* güçlü model plan çıkarır ve takılınca danışılır, hızlı model uygular.
+  3. *Gözden geçirme:* her commit'i önce başka bir model inceler.
+  4. *Akıllı bağlam:* repo haritası (dosyalar ve fonksiyonlar), satır aralığıyla okuma, uzun görevlerde eski adımları sıkıştırma.
+  5. *Plan listesi:* yapılacaklar ekranın üstünde görünür, model tek maddeye odaklanır.
+  6. *Sağlam araç kullanımı:* bozuk JSON onarımı, metne yazılmış araç çağrılarını yakalama, commit öncesi JS/JSON sözdizimi kontrolü, tekrar eden hatayı algılama.
+  7. *Akıllı dersler:* etiketli dersler; her görevde yalnızca ilgili olanlar seçilir; repoya özel dersler `hafiza/repolar/` altında tutulur.
+  8. *Claude'a devretme:* çözemediği iş `claude` etiketli issue olur, gece çalışan Claude görevi çözüp PR açar.
 - **Hafıza:** `hafiza/dersler.md`. Asistan buraya kendi derslerini yazıyor. Uygulamadaki 📚 düğmesinden görüp düzenleyebilirsin.
 
 ## Kurulum (telefondan)
