@@ -1,4 +1,4 @@
-import { PROVIDERS, modelleriGetir } from './llm.js';
+import { PROVIDERS, OTOMATIK, modelleriGetir } from './llm.js';
 import { GitHub } from './github.js';
 import { Hafiza, gorevCalistir, ozDegerlendir } from './agent.js';
 
@@ -25,8 +25,8 @@ const VARSAYILAN = {
   maksAdim: 40,
   aktifRepo: '',
   roller: {
-    planlayici: { saglayici: 'gemini', model: 'gemini-2.5-pro' },
-    gozden: { saglayici: 'groq', model: 'openai/gpt-oss-120b' },
+    planlayici: { saglayici: 'gemini', model: OTOMATIK },
+    gozden: { saglayici: 'groq', model: OTOMATIK },
   },
 };
 let ayar = { ...VARSAYILAN, ...oku('ayar', {}) };
@@ -170,6 +170,11 @@ async function gonder() {
   } catch (e) {
     ekle({ rol: 'hata', metin: '⚠ ' + e.message });
   } finally {
+    // Kalkmış bir modelin yerine yenisi seçildiyse kalıcı olsun
+    if (ayar.degisti) {
+      delete ayar.degisti;
+      yaz('ayar', ayar);
+    }
     calisiyor = false;
     durum('');
     $('gonder').textContent = '➤';
@@ -219,7 +224,7 @@ function saglayicilariCiz() {
         <input type="password" data-anahtar="${id}" value="${kacis(ayar.anahtar[id] || '')}" autocomplete="off" />
       </label>
       <label>Model
-        <input data-model="${id}" list="liste-${id}" value="${kacis(ayar.model[id] || p.model)}" />
+        <input data-model="${id}" list="liste-${id}" value="${kacis(ayar.model[id] || OTOMATIK)}" />
         <datalist id="liste-${id}"></datalist>
       </label>
       <button data-getir="${id}">Modelleri getir</button>`;
@@ -260,7 +265,7 @@ $('saglayicilar').onclick = async (e) => {
     b.textContent = 'Getiriliyor…';
     try {
       const ids = await modelleriGetir(id, ayar.anahtar[id]);
-      $('liste-' + id).innerHTML = ids.map((m) => `<option value="${kacis(m)}">`).join('');
+      $('liste-' + id).innerHTML = [OTOMATIK, ...ids].map((m) => `<option value="${kacis(m)}">`).join('');
       b.textContent = `${ids.length} model bulundu — model kutusuna dokun`;
     } catch (err) {
       b.textContent = 'Hata: ' + err.message;
@@ -280,7 +285,7 @@ function ayarlariAc() {
   for (const [rol, sec, inp] of [['planlayici', 'planSag', 'planModel'], ['gozden', 'gozSag', 'gozModel']]) {
     $(sec).innerHTML = secenekler;
     $(sec).value = ayar.roller[rol]?.saglayici || 'gemini';
-    $(inp).value = ayar.roller[rol]?.model || '';
+    $(inp).value = ayar.roller[rol]?.model || OTOMATIK;
   }
   saglayicilariCiz();
   $('ayarlar').hidden = false;

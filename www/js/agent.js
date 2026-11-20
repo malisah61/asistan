@@ -147,7 +147,9 @@ async function planCikar({ ayar, gh, aktifRepo, istek, gecmis, ui }) {
       role: 'system',
       content: 'Kıdemli bir yazılım mimarısın. Bir kodlama ajanına iş planı hazırlıyorsun. ' +
         'Yalnızca JSON döndür: {"basit": bool, "plan": ["kısa somut adım", …], "dosyalar": ["ilgili dosya yolu", …], "riskler": "dikkat edilecekler"}. ' +
-        'Soru-cevap ya da tek adımlık işse basit:true ve plan boş olsun. Plan en fazla 7 adım olsun, son adım "kontrol_bekle ile doğrula ve PR aç" gibi doğrulama içersin.',
+        'Soru-cevap ya da tek adımlık işse basit:true ve plan boş olsun. Plan en fazla 7 adım olsun; kod değişikliği varsa son adım "kontrol_bekle ile doğrula ve PR aç" olsun.\n' +
+        'ÖNEMLİ: Ajan telefonda çalışır; terminal, klonlama, ortam değişkeni, yerel dosya YOK. Yalnızca şu araçları kullanabilir: ' +
+        [...ARAC_ADLARI].join(', ') + '. Plan adımlarında başka araç ya da komut uydurma.',
     },
     {
       role: 'user',
@@ -231,6 +233,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
   const maksAdim = Number(ayar.maksAdim) || 40;
   const tekrar = new Map(); // aynı başarısız çağrıyı yakala
   let bosYanit = 0;
+  let aracHataSayisi = 0;
 
   for (let adim = 0; adim < maksAdim; adim++) {
     if (ui.durdurulduMu()) return { cevap: '(Durduruldu)', gorev };
@@ -240,7 +243,23 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
     const not = planNotu(gorev.plan);
     if (not && adim > 0) cagriMesajlari.push({ role: 'user', content: not });
 
-    const { message, saglayici, model } = await sohbet(ayar, cagriMesajlari, ARACLAR, ui.durum);
+    let yanit;
+    try {
+      yanit = await sohbet(ayar, cagriMesajlari, ARACLAR, ui.durum);
+    } catch (e) {
+      // Model geçersiz araç çağrısı ürettiyse (ör. olmayan araç adı) bunu söyleyip tekrar dene
+      if (e.aracHatasi && aracHataSayisi < 2) {
+        aracHataSayisi++;
+        mesajlar.push({
+          role: 'user',
+          content: `(otomatik not) Son araç çağrın geçersizdi: ${e.aracHatasi}\n` +
+            `Yalnızca şu araçları, tanımlarındaki argümanlarla kullan: ${[...ARAC_ADLARI].join(', ')}`,
+        });
+        continue;
+      }
+      throw e;
+    }
+    const { message, saglayici, model } = yanit;
     let cagrilar = (message.tool_calls || []).map((c, i) => ({ ...c, id: c.id || `cagri_${adim}_${i}`, type: 'function' }));
     if (!cagrilar.length) cagrilar = metindenAracCagrilari(message.content, ARAC_ADLARI);
 
