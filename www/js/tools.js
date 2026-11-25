@@ -72,7 +72,8 @@ export const ARACLAR = [
 export const ARAC_ADLARI = new Set(ARACLAR.map((a) => a.function.name));
 
 const YAZMA = new Set(['dosya_yaz', 'dosya_duzenle', 'dosya_sil', 'pr_ac', 'actions_baslat', 'dal_olustur', 'kontrol_kur', 'claudea_devret']);
-const MAKS = 15000;
+// Tek araç sonucu üst sınırı; büyük dosyalar baslangic/bitis ile parça parça okunur (bağlam küçük kalsın)
+const MAKS = 10000;
 const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const kisalt = (s) => (s.length > MAKS ? s.slice(0, MAKS) + `\n…(${s.length - MAKS} karakter kesildi; baslangic/bitis ile parça parça oku)` : s);
@@ -87,12 +88,17 @@ async function eskiIcerik(gh, repo, yol, dal) {
 }
 
 /** Commit öncesi: sözdizimi + bağımsız gözden geçirme. Engel varsa açıklama döner. */
+const KUCUK_DEGISIKLIK = 12; // satır
+
 async function yazmadanOnce(ctx, { repo, yol, eski, yeni, zorla }) {
   const hata = sozdizimKontrol(yol, yeni);
   if (hata) return `COMMIT YAPILMADI — sözdizimi hatası: ${hata}\nDüzeltip tekrar dene.`;
 
   if (!ctx.ayar.gozdenGecir || zorla) return null;
   const diff = diffUret(eski, yeni);
+  // Küçük değişiklik için ayrı bir model isteği beklemeye değmez; sözdizimi kontrolü yukarıda yapıldı
+  const degisen = diff.split('\n').filter((l) => /^[+-](?![+-]{2})/.test(l)).length;
+  if (degisen < KUCUK_DEGISIKLIK) return null;
   try {
     const { message } = await sohbet(ctx.ayar, [
       {

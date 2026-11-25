@@ -188,13 +188,14 @@ async function oturumCalistir({ gh, depo, hafiza, ayar, id, gece = false }) {
         onayla: (ad, ozet) => sor(`İzin: ${ad}`, ozet, 'İzin ver'),
         plan: (m) => { o.plan = m.map((x) => ({ ...x })); sonraKaydet(); },
         durdurulduMu,
-        arac: (ad, arg, s) => {
-          o.mesajlar.push({ rol: 'arac', ad, arg: JSON.stringify(arg, null, 1).slice(0, 3000), sonuc: String(s).slice(0, 3000), zaman: Date.now() });
+        arac: (ad, arg, s, sure) => {
+          o.mesajlar.push({ rol: 'arac', ad, arg: JSON.stringify(arg, null, 1).slice(0, 3000), sonuc: String(s).slice(0, 3000), sure, zaman: Date.now() });
           sonraKaydet();
         },
       },
     });
     o.mesajlar.push({ rol: 'asistan', metin: sonuc.cevap, alt: sonuc.saglayici ? `${sonuc.saglayici} · ${sonuc.model}` : '', zaman: Date.now() });
+    if (sonuc.sureOzeti) not(sonuc.sureOzeti);
     if (Date.now() > bitis) not('Bulut görev süresi doldu. "devam et" yazarsan kaldığı yerden sürdürür.');
     if (ayar.ozDeg && !durdurulduMu()) {
       o.durumMetni = 'Bu işten ders çıkarıyor…';

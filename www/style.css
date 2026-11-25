@@ -218,3 +218,5 @@ footer button { background: var(--vurgu); border: none; color: #fff; font-size: 
   .panel-ic { max-width: 780px; margin: 0 auto; }
   .panel { justify-content: center; }
 }
+
+details.arac .sure { font-size: 11px; color: var(--soluk); margin-left: 6px; opacity: .8; }

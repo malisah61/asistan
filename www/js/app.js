@@ -87,7 +87,9 @@ function mesajCiz(m) {
   if (m.rol === 'arac') {
     const d = document.createElement('details');
     d.className = 'arac';
-    d.innerHTML = `<summary>🔧 ${kacis(m.ad)}</summary><pre>${kacis(m.arg)}\n\n→ ${kacis(m.sonuc)}</pre>`;
+    // Model düşünme süresi ve aracın kendi süresi: hangisinin yavaş olduğu görünsün
+    const s = m.sure ? [m.sure.model != null ? `🧠 ${m.sure.model} sn` : '', m.sure.arac >= 1 ? `⚙ ${m.sure.arac} sn` : ''].filter(Boolean).join(' · ') : '';
+    d.innerHTML = `<summary>🔧 ${kacis(m.ad)}${s ? ` <span class="sure">${kacis(s)}</span>` : ''}</summary><pre>${kacis(m.arg)}\n\n→ ${kacis(m.sonuc)}</pre>`;
     return d;
   }
   if (m.rol === 'ders' || m.rol === 'not') {

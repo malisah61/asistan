@@ -10,6 +10,8 @@ export const PROVIDERS = {
     // Ana model hata verirse diğer sağlayıcılara geçmeden önce bu denenir
     yedekModel: 'glm-5.3',
     not: "SSB'nin yapay zeka platformu. Ücretsiz dönem 1 Aralık 2026'da bitiyor.",
+    // deepseek/glm her adımda önce uzun akıl yürütüyor. Basit adımlarda kapatılır; sunucu tanımazsa kendiliğinden bırakılır.
+    dusunmeKapali: { chat_template_kwargs: { enable_thinking: false, thinking: false } },
   },
 };
 
@@ -31,6 +33,16 @@ const SESSIZLIK_SURESI = 90_000; // iki parça arasında
 const TOPLAM_SURE = 15 * 60_000;
 const BOS_AKIS_SURESI = 6 * 60_000; // bağlantı açık ama tek kelime yok
 const ILERLEME_ARALIGI = 3000;
+
+// Düşünmeyi açık bırakan roller: plan çıkarma ve takılınca danışma
+const DUSUNEN_ROLLER = new Set(['planlayici']);
+// Sunucu düşünme kapatma parametresini reddettiyse bu oturumda bir daha gönderilmez
+const dusunmeDesteksiz = new Set();
+const parametreHatasiMi = (status, metin) => status === 400 &&
+  /chat_template_kwargs|enable_thinking|extra (fields|inputs|parameters)|unrecognized|unexpected (keyword|field|argument)|not permitted|unknown (field|parameter)/i.test(metin);
+
+/** Model çağrılarının süresi (ajan bunu görev sonunda özetler). */
+export const olcum = { istek: 0, sure: 0, sonSure: 0, sifirla() { this.istek = 0; this.sure = 0; this.sonSure = 0; } };
 
 const sayi = (n) => (n < 1000 ? String(n) : (n / 1000).toFixed(1) + ' bin');
 
@@ -275,8 +287,8 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
     let sartDenendi = false;
     let modelYenilendi = false;
     let yedekte = false;
-    // Her biri en fazla bir kez: şart onayı, kalkmış modelin yenisi, yedek model
-    for (let deneme = 0; deneme < 4; deneme++) {
+    // Her biri en fazla bir kez: şart onayı, kalkmış modelin yenisi, yedek model, düşünme parametresi
+    for (let deneme = 0; deneme < 5; deneme++) {
       if (!yedekte) {
         try {
           model = await modelCoz(ayar, id, aday.rol);
@@ -289,16 +301,27 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
       durum(`${p.ad} (${model}) ${is}…`);
       try {
         const govde = { model, messages, temperature: 0.2 };
+        const dusunmeKapat = p.dusunmeKapali && !dusunmeDesteksiz.has(id) && !DUSUNEN_ROLLER.has(aday.rol);
+        if (dusunmeKapat) Object.assign(govde, p.dusunmeKapali);
         if (tools?.length) {
           govde.tools = tools;
           govde.tool_choice = 'auto';
         }
+        const istekBas = Date.now();
         const r = await akisliIstek(`${p.url}/chat/completions`, headers(id, ayar.anahtar[id]), govde, ({ yazi, dusunce, sure }) => durum(
           yazi ? `${p.ad} (${model}) yazıyor… ${sayi(yazi)} karakter`
             : dusunce ? `${p.ad} (${model}) düşünüyor… ${sayi(dusunce)} karakter akıl yürütme`
               : `${p.ad} (${model}) isteği işliyor, bağlantı açık… ${sure} sn`));
         const metin = r.metin;
+        olcum.istek++;
+        olcum.sonSure = Date.now() - istekBas;
+        olcum.sure += olcum.sonSure;
         if (!r.ok) {
+          if (dusunmeKapat && parametreHatasiMi(r.status, metin)) {
+            dusunmeDesteksiz.add(id);
+            durum(`${p.ad} düşünme kapatmayı desteklemiyor, normal devam ediliyor…`);
+            continue;
+          }
           if (!sartDenendi && sartlarKabulEdilmediMi(metin)) {
             sartDenendi = true;
             durum(`${p.ad} kullanım şartlarını onaylaman gerekiyor…`);

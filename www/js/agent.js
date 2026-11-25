@@ -1,7 +1,7 @@
 // Ajan döngüsü: planlayıcı → uygulayıcı (araçlarla) → öz değerlendirme
 // + bağlam sıkıştırma, tekrar algılama, metin içi araç çağrısı yedeği, akıllı ders seçimi
 
-import { sohbet, jsonOnar, metindenAracCagrilari } from './llm.js';
+import { sohbet, jsonOnar, metindenAracCagrilari, olcum } from './llm.js';
 import { ARACLAR, ARAC_ADLARI, calistir } from './tools.js';
 import { repoHaritasi } from './kontrol.js';
 
@@ -153,7 +153,7 @@ async function planCikar({ ayar, gh, aktifRepo, istek, gecmis, ui }) {
     },
     {
       role: 'user',
-      content: `${sonKonusma ? `Önceki konuşma:\n${sonKonusma}\n\n` : ''}İstek: ${istek}\n\n${harita ? harita.slice(0, 14000) : '(aktif repo yok)'}`,
+      content: `${sonKonusma ? `Önceki konuşma:\n${sonKonusma}\n\n` : ''}İstek: ${istek}\n\n${harita ? harita.slice(0, 10000) : '(aktif repo yok)'}`,
     },
   ], null, ui.durum, 'planlayici');
   const v = jsonOnar(message.content);
@@ -166,10 +166,15 @@ async function planCikar({ ayar, gh, aktifRepo, istek, gecmis, ui }) {
 const boyut = (m) => (m.content?.length || 0) + JSON.stringify(m.tool_calls || '').length;
 
 /** Uzun görevlerde eski araç sonuçlarını ve büyük dosya içeriklerini kısaltır. */
-function sikistir(mesajlar, limit = 70_000) {
+// Her adımda bütün bağlam yeniden gönderiliyor; küçük tutmak EVREN'in her adımını hızlandırır
+const BAGLAM_SINIRI = 35_000;
+// Kısa istekler (ör. "devam et", tek satırlık düzeltme) için ayrı plan isteği yapılmaz
+const PLAN_ESIGI = 60;
+
+function sikistir(mesajlar, limit = BAGLAM_SINIRI) {
   let toplam = mesajlar.reduce((t, m) => t + boyut(m), 0);
   if (toplam <= limit) return;
-  const korunan = mesajlar.length - 8; // son 8 mesaj olduğu gibi kalsın
+  const korunan = mesajlar.length - 6; // son 6 mesaj olduğu gibi kalsın
   for (let i = 2; i < korunan && toplam > limit * 0.6; i++) {
     const m = mesajlar[i];
     const once = boyut(m);
@@ -208,14 +213,15 @@ const AG_BEKLEME = 30_000;
  * ui: { durum(t), arac(ad, arg, sonuc), onayla(ad, ozet), durdurulduMu(), plan(maddeler) }
  */
 export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek, ui }) {
-  const gorev = { istek, plan: [], sonSha: {}, kontrolHata: 0, gunluk: [] };
+  const gorev = { istek, plan: [], sonSha: {}, kontrolHata: 0, gunluk: [], basla: Date.now(), aracSure: 0 };
+  olcum.sifirla();
   const ctx = { gh, hafiza, ayar, aktifRepo, gorev, onayla: ui.onayla, durum: ui.durum, durdurulduMu: ui.durdurulduMu, plan: ui.plan };
 
   const sistem = await sistemMesaji(hafiza, aktifRepo, gh, istek);
   const mesajlar = [{ role: 'system', content: sistem }, ...gecmis.slice(-12), { role: 'user', content: istek }];
 
   // 1) Planlayıcı
-  if (ayar.planla !== false && istek.length > 20) {
+  if (ayar.planla !== false && istek.length >= PLAN_ESIGI) {
     try {
       const p = await planCikar({ ayar, gh, aktifRepo, istek, gecmis, ui });
       if (p) {
@@ -228,7 +234,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
             p.plan.map((x, i) => `${i + 1}. ${x}`).join('\n') +
             (p.dosyalar.length ? `\nMuhtemel ilgili dosyalar: ${p.dosyalar.join(', ')}` : '') +
             (p.riskler ? `\nDikkat: ${p.riskler}` : '') +
-            (p.harita ? `\n\n${p.harita.slice(0, 8000)}` : ''),
+            (p.harita ? `\n\n${p.harita.slice(0, 5000)}` : ''),
         });
       }
     } catch { /* plan çıkmazsa ajan kendisi planlar */ }
@@ -272,6 +278,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
       throw e;
     }
     agHataSayisi = 0;
+    const modelSn = Math.round(olcum.sonSure / 1000);
     const { message, saglayici, model } = yanit;
     let cagrilar = (message.tool_calls || []).map((c, i) => ({ ...c, id: c.id || `cagri_${adim}_${i}`, type: 'function' }));
     if (!cagrilar.length) cagrilar = metindenAracCagrilari(message.content, ARAC_ADLARI);
@@ -291,12 +298,13 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
         mesajlar.push({ role: 'user', content: '(otomatik not) Söylediğini şimdi araç çağırarak yap. Plan bittiyse kullanıcıya son özeti yaz.' });
         continue;
       }
-      return { cevap: metin || '(boş yanıt)', gorev, saglayici, model };
+      return { cevap: metin || '(boş yanıt)', gorev, saglayici, model, sureOzeti: sureOzeti(gorev) };
     }
     bosYanit = 0;
 
-    for (const c of cagrilar) {
+    for (const [ci, c] of cagrilar.entries()) {
       const ad = c.function?.name;
+      const aracBas = Date.now();
       const arg = jsonOnar(c.function?.arguments);
       let sonuc;
       if (arg === null) {
@@ -315,16 +323,28 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
           if (n >= 2) sonuc += '\n(otomatik not) Bu çağrıyı aynen tekrarlıyorsun ve aynı hatayı alıyorsun. Farklı bir yol dene ya da danis kullan.';
         }
       }
-      ui.arac(ad, arg, sonuc);
+      const aracSn = Math.round((Date.now() - aracBas) / 1000);
+      gorev.aracSure += Date.now() - aracBas;
+      // Model süresi adımın ilk aracına yazılır (aynı yanıtta birden fazla araç olabilir)
+      ui.arac(ad, arg, sonuc, { model: ci === 0 ? modelSn : null, arac: aracSn });
       gorev.gunluk.push(`${ad}(${JSON.stringify(arg).slice(0, 160)}) → ${sonuc.slice(0, 200).replace(/\n/g, ' ')}`);
       mesajlar.push({ role: 'tool', tool_call_id: c.id, name: ad, content: sonuc });
     }
 
     if (gorev.devredildi) {
-      return { cevap: `Bu işi Claude'a devrettim: ${gorev.devredildi}\nGece çalışan görev çözüp PR açacak.`, gorev, saglayici, model };
+      return { cevap: `Bu işi Claude'a devrettim: ${gorev.devredildi}\nGece çalışan görev çözüp PR açacak.`, gorev, saglayici, model, sureOzeti: sureOzeti(gorev) };
     }
   }
-  return { cevap: `Adım sınırına (${maksAdim}) ulaştım. "devam et" yazarsan kaldığım yerden sürdürürüm.`, gorev };
+  return { cevap: `Adım sınırına (${maksAdim}) ulaştım. "devam et" yazarsan kaldığım yerden sürdürürüm.`, gorev, sureOzeti: sureOzeti(gorev) };
+}
+
+const dk = (ms) => (ms >= 60_000 ? `${(ms / 60_000).toFixed(1)} dk` : `${Math.round(ms / 1000)} sn`);
+
+/** Nerede vakit geçtiğini gösteren kısa özet: model mi, araçlar (ör. build bekleme) mi. */
+function sureOzeti(gorev) {
+  const toplam = Date.now() - gorev.basla;
+  const ort = olcum.istek ? olcum.sure / olcum.istek : 0;
+  return `⏱ Toplam ${dk(toplam)} · model ${dk(olcum.sure)} (${olcum.istek} istek, ortalama ${dk(ort)}) · araçlar ${dk(gorev.aracSure)}`;
 }
 
 // ---------- Öz değerlendirme ----------
