@@ -20,11 +20,23 @@ if (DOSYA) {
     const s = yukle();
     s.log.push(`${m} ${url.replace(/^https:\/\/[^/]+/, '')}`.slice(0, 140));
     try {
+      // Sahte MCP sunucusu (context7, deepwiki): SSE biçiminde cevap verir
+      if (/^https:\/\/mcp\./.test(url)) {
+        const ad = new URL(url).hostname.split('.')[1];
+        const sse = (result) => new Response(`event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: b.id, result })}\n\n`,
+          { status: 200, headers: { 'content-type': 'text/event-stream', 'mcp-session-id': 'oturum-' + ad } });
+        if (b.method === 'initialize') return sse({ protocolVersion: '2025-06-18', capabilities: { tools: {} } });
+        if (!b.id) return new Response(null, { status: 202 });
+        if ((o.headers || {})['Mcp-Session-Id'] !== 'oturum-' + ad) return yanit(400, 'oturum yok');
+        if (b.method === 'tools/list') return sse({ tools: [{ name: 'belge-ara', description: `${ad} belge`, inputSchema: { type: 'object', properties: { q: { type: 'string' } } } }] });
+        if (b.method === 'tools/call') return sse({ content: [{ type: 'text', text: `${ad} sonucu: ${b.params.arguments.q}` }] });
+      }
       if (url.includes('evren-llmapi')) {
         if (url.endsWith('/terms/accept')) { s.terms = true; return yanit(200, {}); }
         if (!s.terms) return yanit(403, { error: { code: 'terms_not_accepted', message: 'Şartları kabul et' } });
         if (url.endsWith('/models')) return yanit(200, { data: [{ id: 'deepseek-v4.1-flash' }, { id: 'glm-5.3' }] });
         const sys = b.messages[0].content;
+        if (b.tools) s.araclar = b.tools.map((t) => t.function.name);
         if (sys.includes('Kıdemli')) return yanit(200, { choices: [{ message: { content: '{"basit":true}' } }] });
         if (sys.includes('değerlendiriyorsun')) return yanit(200, { choices: [{ message: { content: '{"ders":null}' } }] });
         if (!b.messages.some((x) => x.role === 'tool')) {

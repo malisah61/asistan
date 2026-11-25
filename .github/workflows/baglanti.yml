@@ -1,0 +1,18 @@
+# Bağlayıcı ve internet araçlarının gerçek bağlantı testi (elle ya da bu dosyalar değişince)
+name: Bağlantı testi
+on:
+  workflow_dispatch:
+  push:
+    paths: ['www/js/mcp.js', 'bulut/baglanti.mjs', '.github/workflows/baglanti.yml']
+jobs:
+  dene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node bulut/baglanti.mjs
+        env:
+          JINA_ANAHTAR: ${{ secrets.JINA_ANAHTAR }}
+          CONTEXT7_ANAHTAR: ${{ secrets.CONTEXT7_ANAHTAR }}

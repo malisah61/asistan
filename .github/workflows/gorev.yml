@@ -50,6 +50,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.ASISTAN_GH_TOKEN }}
           EVREN_ANAHTAR: ${{ secrets.EVREN_ANAHTAR }}
+          # İsteğe bağlı (yoksa anahtarsız ücretsiz sınırlar kullanılır)
+          JINA_ANAHTAR: ${{ secrets.JINA_ANAHTAR }}
+          CONTEXT7_ANAHTAR: ${{ secrets.CONTEXT7_ANAHTAR }}
+          MCP_ANAHTARLARI: ${{ secrets.MCP_ANAHTARLARI }}
           HAFIZA_REPO: ${{ vars.HAFIZA_REPO }}
           OTURUM: ${{ steps.oturum.outputs.id }}
           KOSU_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

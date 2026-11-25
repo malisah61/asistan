@@ -124,6 +124,15 @@ async function sistemMesaji(hafiza, aktifRepo, gh, istek) {
     'Her model turu çok zaman alır. Birden çok dosya okuyacaksan hepsini AYNI yanıtta, birden çok tool_call ile iste.',
     'Okuduğun ve değişmeyen dosyayı yeniden okuma. Büyük dosyada yalnızca ilgili satır aralığını oku.',
     '',
+    '## Araştırma ve belgeler (uydurma!)',
+    '- Bir API, sınıf, metot ya da kütüphane davranışından emin değilsen tahmin etme, bak:',
+    '  - Godot: `godot_sinif` (resmi sınıf referansı; projenin Godot sürümünü project.godot\'dan oku). Örnek, eğitim, sürüm farkı için `mcp_context7_*`.',
+    '  - Başka kütüphane/çatı (Phaser, Capacitor, React…): `mcp_context7_*` ile güncel belge.',
+    '  - Herkese açık bir GitHub projesinin nasıl çalıştığı: `mcp_deepwiki_*`.',
+    '  - Hata mesajı, oyun tasarımı, güncel bilgi: `web_ara`, ardından `web_oku`.',
+    '- Uzun araştırma ya da çok dosyalı incelemeyi `alt_ajan`a ver; ana bağlamın dolmaz. Bağımsız işleri aynı yanıtta birden çok alt_ajan ile paralel yaptır.',
+    '- Araştırmadan aldığın bilgiyi raporda kaynak linkiyle belirt.',
+    '',
     '## Sormadan yapmayacakların',
     'İstek belirsizse ya da birden fazla anlama gelebiliyorsa, pahalı bir işe girişmeden önce kullanıcıya TEK kısa soru sor ve dur.',
     'Başka bir sistemi (workflow, API) çağırmadan önce tanımını oku; girdilerini açıkça ver, varsayılana güvenme.',
@@ -305,10 +314,61 @@ const AG_BEKLEME = 30_000;
  * onceki: { plan, adimlar: [{ ad, arg, sonuc }], hata } — aynı sohbetteki önceki çalışmalar.
  * "devam et" dendiğinde ajan baştan başlamasın diye ne yapıldığı özetlenip bağlama eklenir.
  */
-export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek, ui, onceki }) {
+// Alt ajan: araştırma/inceleme işini ayrı bağlamda yapar, ana bağlama yalnızca özet döner
+const ALT_AJAN_ADIM = 12;
+const ALT_AJAN_OZET = 5000;
+const ALT_AJAN_BAGLAM = 40_000;
+
+async function altAjanCalistir({ gorevMetni, repo, ayar, ctx, araclar, ui }) {
+  const izinli = araclar.filter((t) => t.function.name !== 'alt_ajan' &&
+    (OKUMA.has(t.function.name) || ctx.ekAraclar?.has(t.function.name)));
+  const altCtx = { ...ctx, altAjan: null, aktifRepo: repo || ctx.aktifRepo, gorev: { ...ctx.gorev, okunan: undefined, plan: [] } };
+  const mesajlar = [
+    {
+      role: 'system',
+      content: 'Sen Asistan\'ın yardımcı alt ajanısın. Sana verilen araştırma/inceleme işini yalnızca okuma araçlarıyla yap ' +
+        '(dosya okuma, kod arama, web_ara, web_oku, godot_sinif, bağlayıcılar). Hiçbir şey değiştiremezsin. ' +
+        'Bitince kısa ve somut bir özet yaz: bulduğun gerçekler, ilgili dosya/satırlar, kod imzaları, kaynak linkleri. ' +
+        'Emin olmadığını belirt; uydurma.' + (altCtx.aktifRepo ? `\nİlgili repo: ${altCtx.aktifRepo}` : ''),
+    },
+    { role: 'user', content: gorevMetni },
+  ];
+  for (let adim = 0; adim < ALT_AJAN_ADIM; adim++) {
+    if (ui.durdurulduMu()) return '(Durduruldu)';
+    sikistir(mesajlar, altCtx.gorev, ALT_AJAN_BAGLAM);
+    const son = adim === ALT_AJAN_ADIM - 1;
+    const gonder = mesajlar.map(({ sikisti, okumaAnahtari: _, ...m }) => m);
+    if (son) gonder.push({ role: 'user', content: '(otomatik not) Adım sınırı geldi. Araç çağırma, şimdiye kadar bulduklarını özetle.' });
+    const { message } = await sohbet(ayar, gonder, son ? undefined : izinli, (d) => ui.durum(`alt ajan: ${d}`));
+    const cagrilar = (message.tool_calls || []).map((c, i) => ({ ...c, id: c.id || `alt_${adim}_${i}`, type: 'function' }));
+    mesajlar.push({ role: 'assistant', content: message.content || (cagrilar.length ? null : ''), ...(cagrilar.length ? { tool_calls: cagrilar } : {}) });
+    if (!cagrilar.length) {
+      const metin = (message.content || '').trim() || '(alt ajan boş özet döndü)';
+      return metin.length > ALT_AJAN_OZET ? metin.slice(0, ALT_AJAN_OZET) + '\n…(özet kesildi)' : metin;
+    }
+    const sonuclar = await Promise.all(cagrilar.map(async (c) => {
+      const arg = jsonOnar(c.function?.arguments);
+      if (arg === null) return 'HATA: argümanlar geçerli JSON değil.';
+      try { return String(await calistir(c.function?.name, arg, altCtx)); } catch (e) { return `HATA: ${e.message}`; }
+    }));
+    cagrilar.forEach((c, k) => mesajlar.push({ role: 'tool', tool_call_id: c.id, name: c.function?.name, content: sonuclar[k] }));
+  }
+  return '(alt ajan sonuç üretemedi)';
+}
+
+export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek, ui, onceki, ekAraclar = [] }) {
   const gorev = { istek, plan: [], sonSha: {}, kontrolHata: 0, gunluk: [], basla: Date.now(), aracSure: 0 };
   olcum.sifirla();
   const ctx = { gh, hafiza, ayar, aktifRepo, gorev, onayla: ui.onayla, durum: ui.durum, durdurulduMu: ui.durdurulduMu, plan: ui.plan, gorsel: ui.gorsel };
+  // Bağlayıcı (MCP) araçları çalışma anında eklenir
+  ctx.ekAraclar = new Map(ekAraclar.map((a) => [a.tanim.function.name, a]));
+  const araclar = [...ARACLAR, ...ekAraclar.map((a) => a.tanim)];
+  const aracAdlari = new Set([...ARAC_ADLARI, ...ctx.ekAraclar.keys()]);
+  const okumaMi = (ad) => OKUMA.has(ad) || Boolean(ctx.ekAraclar.get(ad)?.okuma);
+  ctx.altAjan = ({ gorev: gorevMetni, repo }) => {
+    gorev.altAjanSayisi = (gorev.altAjanSayisi || 0) + 1;
+    return altAjanCalistir({ gorevMetni, repo, ayar, ctx, araclar, ui });
+  };
 
   const sistem = await sistemMesaji(hafiza, aktifRepo, gh, istek);
   const mesajlar = [{ role: 'system', content: sistem }, ...gecmis.slice(-12)];
@@ -360,7 +420,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
 
     let yanit;
     try {
-      yanit = await sohbet(ayar, cagriMesajlari, ARACLAR, ui.durum);
+      yanit = await sohbet(ayar, cagriMesajlari, araclar, ui.durum);
     } catch (e) {
       // Model geçersiz araç çağrısı ürettiyse (ör. olmayan araç adı) bunu söyleyip tekrar dene
       if (e.aracHatasi && aracHataSayisi < 2) {
@@ -368,7 +428,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
         mesajlar.push({
           role: 'user',
           content: `(otomatik not) Son araç çağrın geçersizdi: ${e.aracHatasi}\n` +
-            `Yalnızca şu araçları, tanımlarındaki argümanlarla kullan: ${[...ARAC_ADLARI].join(', ')}`,
+            `Yalnızca şu araçları, tanımlarındaki argümanlarla kullan: ${[...aracAdlari].join(', ')}`,
         });
         continue;
       }
@@ -385,7 +445,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
     const modelSn = Math.round(olcum.sonSure / 1000);
     const { message, saglayici, model } = yanit;
     let cagrilar = (message.tool_calls || []).map((c, i) => ({ ...c, id: c.id || `cagri_${adim}_${i}`, type: 'function' }));
-    if (!cagrilar.length) cagrilar = metindenAracCagrilari(message.content, ARAC_ADLARI);
+    if (!cagrilar.length) cagrilar = metindenAracCagrilari(message.content, aracAdlari);
 
     mesajlar.push({
       role: 'assistant',
@@ -431,7 +491,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
     const hazir = new Map(); // çağrı sırası → önceden (paralel) alınmış sonuç
     const okumaGrubu = async (bas) => {
       let son = bas;
-      while (son < cagrilar.length && OKUMA.has(cagrilar[son].function?.name)) son++;
+      while (son < cagrilar.length && okumaMi(cagrilar[son].function?.name)) son++;
       if (son - bas < 2) return;
       ui.durum(`${son - bas} okuma aynı anda yapılıyor…`);
       const t0 = Date.now();
@@ -443,7 +503,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
     for (const [ci, c] of cagrilar.entries()) {
       const ad = c.function?.name;
       // Yeni bir okuma grubunun başıysa grubu topluca çalıştır
-      if (!hazir.has(ci) && OKUMA.has(ad) && (ci === 0 || !OKUMA.has(cagrilar[ci - 1].function?.name))) await okumaGrubu(ci);
+      if (!hazir.has(ci) && okumaMi(ad) && (ci === 0 || !okumaMi(cagrilar[ci - 1].function?.name))) await okumaGrubu(ci);
       let arg;
       let sonuc;
       let sure;
