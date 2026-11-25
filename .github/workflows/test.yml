@@ -1,0 +1,26 @@
+name: Test
+
+# Asistan'ın kendi kodu için testler (test/*.test.mjs). Ana dal dışındaki dallarda ve PR'larda çalışır;
+# ana dalda apk.yml zaten testleri derlemeden önce koşar. Asistan kendini geliştirirken kontrol_bekle bunu bekler.
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Sözdizimi
+        run: npm run check
+      - name: Testler
+        run: npm test

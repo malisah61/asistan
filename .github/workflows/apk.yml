@@ -37,6 +37,10 @@ jobs:
       - name: JS sözdizimi kontrolü
         run: npm run check
 
+      # Testler geçmezse APK yayınlanmaz: bozuk bir değişiklik telefona/web'e ulaşmasın
+      - name: Testler
+        run: npm test
+
       - name: Android projesi
         run: |
           npx cap add android

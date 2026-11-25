@@ -1,0 +1,120 @@
+// Ajan döngüsü: paralel okuma ve sıra, tekrar okuma engeli, doğrulamadan bitirmeme,
+// pahalı/serbest iş akışı onayı, dali_birlestir şartı, API'ye iç alan gitmemesi.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+const R = 'malisah61/oyun';
+const cagri = (ad, arg) => ({ id: ad + Math.random(), type: 'function', function: { name: ad, arguments: JSON.stringify(arg) } });
+const WF = 'on:\n  workflow_dispatch:\n    inputs:\n      hedef:\n        default: malisah61/komando\n';
+
+function ortam(senaryo) {
+  const giden = [];
+  let i = 0;
+  globalThis.fetch = async (url, o) => {
+    giden.push(JSON.parse(o.body).messages);
+    const s = senaryo[i++] ?? 'bitti';
+    const message = typeof s === 'string' ? { content: s } : { content: null, tool_calls: s };
+    return new Response(JSON.stringify({ choices: [{ message }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const olay = [];
+  const dosyalar = { 'a.gd': 'eski satır\nbaşka', 'b.gd': 'b içerik' };
+  let surum = 0;
+  const gh = {
+    dosyaOku: async (repo, yol) => {
+      if (yol === 'AGENTS.md') throw Object.assign(new Error('yok'), { status: 404 });
+      if (yol.endsWith('.yml')) return { sha: 'w', icerik: WF };
+      olay.push(`oku-bas ${yol}`);
+      await new Promise((r) => setTimeout(r, 150));
+      olay.push(`oku-bit ${yol}`);
+      return { sha: `${yol}@${surum}`, icerik: dosyalar[yol] ?? '' };
+    },
+    sha: async () => 'x',
+    dosyaYaz: async (repo, yol, icerik) => { olay.push(`yaz ${yol}`); dosyalar[yol] = icerik; surum++; gh.sonCommit = 'c' + surum; return 'https://commit'; },
+    sonCommit: 'c0',
+    dalSonCommit: async () => gh.sonCommit,
+    calismalar: async () => [{ ad: 'kontrol', durum: 'completed', sonuc: 'success' }],
+    calismaBaslat: async () => 'Başlatıldı',
+    yeniCalisma: async () => ({ id: 1, url: 'https://run/1' }),
+    prBirlestir: async () => { olay.push('birlestir'); return 'abc1234'; },
+    istek: async (yol, op = {}) => {
+      if (/\/pulls\?head=/.test(yol)) return [];
+      if (yol.endsWith('/pulls') && op.method === 'POST') return { number: 7, html_url: 'https://pr/7' };
+      if (/\/git\/refs\/heads\//.test(yol)) return {};
+      return { default_branch: 'main' };
+    },
+  };
+  return { gh, giden, olay, dosyalar };
+}
+
+async function calistir(senaryo, ayarEk = {}) {
+  const o = ortam(senaryo);
+  const { gorevCalistir } = await import('../www/js/agent.js');
+  const onaylar = [];
+  const araclar = [];
+  const sonuc = await gorevCalistir({
+    ayar: { anahtar: { evren: 'k' }, model: { evren: 'deepseek-v4.1-flash' }, sira: ['evren'], roller: {}, planla: false, gozdenGecir: false, onayIste: true, ...ayarEk },
+    gh: o.gh, hafiza: { repo: 'h', stil: async () => '', secilmisDersler: async () => ({ genel: '', repo: '', toplam: 0 }) },
+    aktifRepo: R, gecmis: [], istek: 'a.gd düzelt',
+    ui: {
+      durum: () => {}, plan: () => {}, durdurulduMu: () => false,
+      arac: (ad, a, s) => araclar.push([ad, String(s)]),
+      onayla: async (ad, ozet, op) => { onaylar.push(`${ad}${op?.zorunlu ? ' (zorunlu)' : ''}`); return true; },
+    },
+  });
+  return { ...o, onaylar, araclar, sonuc };
+}
+
+test('ardışık okumalar paralel, yazmadan sonraki okuma yazmayı bekler', async () => {
+  const { olay } = await calistir([
+    [cagri('dosya_oku', { repo: R, yol: 'a.gd' }), cagri('dosya_oku', { repo: R, yol: 'b.gd' }),
+      cagri('dosya_duzenle', { repo: R, yol: 'a.gd', dal: 'asistan/x', eski: 'eski', yeni: 'yeni', mesaj: 'm' }),
+      cagri('dosya_oku', { repo: R, yol: 'a.gd', dal: 'asistan/x' })],
+    'Bitti.', [cagri('kontrol_bekle', { repo: R, dal: 'asistan/x' })], 'Rapor',
+  ]);
+  const i = (x) => olay.indexOf(x);
+  assert.ok(i('oku-bas b.gd') < i('oku-bit a.gd'), 'a ve b aynı anda okunmalı');
+  const yaz = i('yaz a.gd');
+  assert.ok(yaz > i('oku-bit b.gd'), 'yazma okumalardan sonra');
+  assert.ok(olay.lastIndexOf('oku-bas a.gd') > yaz, 'yazmadan sonraki okuma yazmayı beklemeli');
+});
+
+test('değişmemiş dosya ikinci kez gönderilmez, doğrulamadan bitirmeye izin verilmez', async () => {
+  const { araclar, giden, sonuc } = await calistir([
+    [cagri('dosya_oku', { repo: R, yol: 'b.gd' })],
+    [cagri('dosya_oku', { repo: R, yol: 'b.gd' })],
+    [cagri('dosya_duzenle', { repo: R, yol: 'a.gd', dal: 'asistan/x', eski: 'eski', yeni: 'yeni', mesaj: 'm' })],
+    'Bitti.',
+    [cagri('kontrol_bekle', { repo: R, dal: 'asistan/x' })],
+    'Rapor',
+  ]);
+  assert.match(araclar[1][1], /^\(Bu dosyayı\/bölümü/);
+  assert.ok(giden.some((m) => m.some((x) => String(x.content).includes('kontrol_bekle ile doğrulamadın'))));
+  assert.equal(sonuc.gorev.dogrulandi, true);
+  assert.ok(!giden.some((m) => m.some((x) => 'okumaAnahtari' in x || 'sikisti' in x)), 'iç alanlar API\'ye gitmemeli');
+});
+
+test('Sprite Atölye onaysız, başka repo zorunlu onay, girdisiz başlatma reddedilir', async () => {
+  const { onaylar, araclar } = await calistir([
+    [cagri('actions_baslat', { repo: 'malisah61/sprite-atolye', workflow: 'siparis.yml' })],
+    [cagri('actions_baslat', { repo: 'malisah61/sprite-atolye', workflow: 'siparis.yml', girdiler: { hedef: R } })],
+    [cagri('actions_baslat', { repo: 'malisah61/komando', workflow: 'derle.yml', girdiler: { hedef: R } })],
+    'Rapor',
+  ]);
+  assert.match(araclar[0][1], /^BAŞLATILMADI/);
+  assert.match(araclar[1][1], /^Başlatıldı/);
+  assert.deepEqual(onaylar, ['actions_baslat (zorunlu)']);
+});
+
+test('dali_birlestir yalnızca doğrulanmış son commit\'te ve sormadan çalışır', async () => {
+  const { araclar, onaylar, olay } = await calistir([
+    [cagri('dosya_duzenle', { repo: R, yol: 'a.gd', dal: 'asistan/x', eski: 'eski', yeni: 'yeni', mesaj: 'm' })],
+    [cagri('dali_birlestir', { repo: R, dal: 'asistan/x', baslik: 'düzeltme' })],
+    [cagri('kontrol_bekle', { repo: R, dal: 'asistan/x' })],
+    [cagri('dali_birlestir', { repo: R, dal: 'asistan/x', baslik: 'düzeltme' })],
+    'Rapor',
+  ], { onayIste: false });
+  assert.match(araclar[1][1], /^BİRLEŞTİRİLMEDİ/);
+  assert.match(araclar[3][1], /^✅/);
+  assert.ok(olay.includes('birlestir'));
+  assert.deepEqual(onaylar, []);
+});

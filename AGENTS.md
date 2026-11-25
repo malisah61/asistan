@@ -11,7 +11,7 @@ Burayı değiştirmek için yeni APK gerekmez: dosyayı düzenleyip commit etmen
    - 3 denemede de olmazsa `danis` ile planlayıcıya sor. Yine olmazsa `claudea_devret` ile işi Claude'a bırak; boşuna döngüye girme.
    - Gözden geçiren model commit'e itiraz ederse önce ciddiye al. Yalnızca gerçekten yanılıyorsa `zorla: true` kullan.
 5. **Bitir ve özetle.** Şu biçimde, 2–6 kısa satır:
-   - **Ne değişti** · **Nerede** (PR/commit linki) · **Nasıl test edildi** (edemediysen açıkça yaz) · **Senden gereken** (yoksa yazma)
+   - **Ne değişti** · **Nerede** (ana dala alındı + link; oyunsa APK linki) · **Nasıl test edildi** (edemediysen açıkça yaz) · **Senden gereken** (yoksa yazma)
    - İstenip yapılmayan ya da atlanan bir şey varsa (ör. 12 dosyadan 4'ü) mutlaka söyle.
 
 ## Hız (her model turu dakikalar sürebilir)
@@ -26,7 +26,9 @@ Burayı değiştirmek için yeni APK gerekmez: dosyayı düzenleyip commit etmen
 - **İstisna — Sprite Atölye:** Siparişler onaysız; Modal harcama sınırı var. Oyuna görsel gerekiyorsa `assets/siparis.json`'u yaz, `sprite-atolye`'de `siparis.yml`'i `hedef` (oyun reposu) ve `dal` girdileriyle kendin başlat, bitince `gorsel_goster` ile sonucu göster.
 
 ## Git düzeni
-- Ana dala doğrudan yazma. Her iş için `asistan/<kisa-konu>` adında dal aç, commit at, `pr_ac` ile PR aç.
+- Ana dala doğrudan yazma. Her iş için `asistan/<kisa-konu>` adında dal aç, commit at.
+- Kontroller geçince işi `dali_birlestir` ile ana dala **kendin** al. Kullanıcı PR süreciyle uğraşmak istemiyor: PR inceletme, "birleştireyim mi" diye sorma.
+- Kontroller geçmediyse birleştirme; düzelt ya da kullanıcıya ne olduğunu söyle.
 - Kullanıcı açıkça "direkt main'e yaz" derse ana dala yazabilirsin.
 - Commit mesajları kısa olsun ve ne yapıldığını söylesin: `düşman görüş açısı 90°→60°`.
 - Bir commit tek bir mantıklı değişiklik içersin.
@@ -48,6 +50,7 @@ Burayı değiştirmek için yeni APK gerekmez: dosyayı düzenleyip commit etmen
 - **Godot + C#:** Sahne (.tscn) dosyalarını elle düzenlerken çok dikkatli ol, `[ext_resource]` id'lerini bozma. C# sınıf adı dosya adıyla aynı olmalı.
 - **HTML/JS/Canvas:** Çevrimdışı çalışmalı, harici CDN ekleme. Mobil dokunmatik kontrolü unutma.
 - **Android APK (Actions):** Build kırılırsa önce logun son satırlarındaki asıl hatayı bul. Aynı düzeltmeyi iki kez deneme.
+- **Asistan'ın kendi kodu (malisah61/asistan):** `test/` altındaki testler her dalda çalışır (`test.yml`). Bir davranışı değiştirdiysen ya da eklediysen onu deneyen bir test de yaz. Testler kırmızıyken asla birleştirme: bozuk Asistan bir sonraki görevde çalışamaz.
 
 ## Kendini geliştirme
 - Bir hatadan ya da kullanıcı düzeltmesinden genel bir ders çıktıysa `ders_ekle` ile kaydet. Yalnızca o repoya özgüyse `kapsam: "repo"`, değilse `genel` seç ve konu etiketleri ekle (`godot`, `csharp`, `js`, `actions`).

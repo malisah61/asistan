@@ -117,7 +117,7 @@ async function sistemMesaji(hafiza, aktifRepo, gh, istek) {
     '3. asistan/<konu> dalı aç, küçük değişikliklerle commit at (dosya_duzenle tercih et).',
     '4. Değişiklik grubu bitince kontrol_bekle çağır. Repoda kontrol workflow\'u yoksa önce kontrol_kur.',
     '5. Kontrol kırıldıysa logdaki ASIL hatayı bul ve düzelt. En fazla 3 deneme; sonra danis kullan, yine olmazsa claudea_devret.',
-    '6. Kontroller geçince pr_ac ve kullanıcıya kısa özet ver.',
+    '6. Kontroller geçince dali_birlestir ile işi ana dala KENDİN al ve kullanıcıya kısa özet ver. Kullanıcıya PR inceletme, "birleştireyim mi" diye sorma: kullanıcı PR süreciyle uğraşmak istemiyor.',
     'Araçları her zaman tool_calls ile çağır. Bilmediğin bir şeyi uydurma; repoda ara ya da oku.',
     '',
     '## Hız',
@@ -136,7 +136,7 @@ async function sistemMesaji(hafiza, aktifRepo, gh, istek) {
     'Oyun ya da uygulama işinde iş, kullanıcının deneyebileceği bir şey verince biter:',
     '- HTML/JS ise ve repoda APK workflow\'u yoksa apk_kur ile ekle; kontrol_bekle ile derlemeyi bekle; apk_linki ile linki al ve raporda "APK: <link>" olarak ver.',
     '- Godot ise repodaki derleme workflow\'unu bekle ve apk_linki ile bak.',
-    '- Kullanıcı "birleştir", "main\'e al", "bitir" derse ve kontroller geçtiyse pr_birlestir kullan (onay istenir), sonra ana dalın APK linkini ver.',
+    '- İş bitip kontroller geçince dali_birlestir ile ana dala al, sonra ana dalın APK linkini ver (apk_linki, dal: ana dal).',
     '',
     '## Görsel ve link paylaşımı',
     'Görselle ilgili bir iş yaptıysan (üretim, sprite, ikon, ekran görüntüsü) sonucu gorsel_goster ile sohbete ekle; mümkünse eskisini de göster ki karşılaştırılsın.',
@@ -416,8 +416,8 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
     }
     bosYanit = 0;
 
-    // Yalnızca okuma yapan çağrılar aynı anda çalıştırılır; yazma içeren yanıtlar sırayla
-    const paralel = cagrilar.length > 1 && cagrilar.every((c) => OKUMA.has(c.function?.name));
+    // Ardışık okuma çağrıları birlikte (paralel) çalışır; bir yazma araya girerse sıra korunur:
+    // yazmadan SONRAKİ okumalar yazma bittikten sonra başlar, yoksa dosyanın eski halini getirirdi.
     const calistirBir = async (c) => {
       const arg = jsonOnar(c.function?.arguments);
       if (arg === null) return { arg, sonuc: 'HATA: argümanlar geçerli JSON değil. Daha kısa parçalarla ve geçerli JSON ile tekrar dene.', sure: 0 };
@@ -428,21 +428,27 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
         return { arg, sonuc: `HATA: ${e.message}`, sure: Date.now() - bas };
       }
     };
-    let hazir = null;
-    if (paralel) {
-      ui.durum(`${cagrilar.length} okuma aynı anda yapılıyor…`);
-      const bas = Date.now();
-      hazir = await Promise.all(cagrilar.map(calistirBir));
-      gorev.aracSure += Date.now() - bas;
-    }
+    const hazir = new Map(); // çağrı sırası → önceden (paralel) alınmış sonuç
+    const okumaGrubu = async (bas) => {
+      let son = bas;
+      while (son < cagrilar.length && OKUMA.has(cagrilar[son].function?.name)) son++;
+      if (son - bas < 2) return;
+      ui.durum(`${son - bas} okuma aynı anda yapılıyor…`);
+      const t0 = Date.now();
+      const sonuclar = await Promise.all(cagrilar.slice(bas, son).map(calistirBir));
+      sonuclar.forEach((r, k) => hazir.set(bas + k, r));
+      gorev.aracSure += Date.now() - t0;
+    };
 
     for (const [ci, c] of cagrilar.entries()) {
       const ad = c.function?.name;
+      // Yeni bir okuma grubunun başıysa grubu topluca çalıştır
+      if (!hazir.has(ci) && OKUMA.has(ad) && (ci === 0 || !OKUMA.has(cagrilar[ci - 1].function?.name))) await okumaGrubu(ci);
       let arg;
       let sonuc;
       let sure;
-      if (hazir) {
-        ({ arg, sonuc, sure } = hazir[ci]);
+      if (hazir.has(ci)) {
+        ({ arg, sonuc, sure } = hazir.get(ci));
       } else {
         ui.durum(`${ad} çalışıyor…`);
         ({ arg, sonuc, sure } = await calistirBir(c));
@@ -522,3 +528,6 @@ async function dersleriBirlestir({ ayar, hafiza, tum }) {
   const yeni = (message.content || '').replace(/^```\w*\n?|```$/g, '').trim();
   if (yeni.startsWith('# ') && dersleriAyristir(yeni).length >= 10) await hafiza.yenidenYaz(yeni + '\n');
 }
+
+// Testler için (test/*.test.mjs)
+export { sikistir, guncelMesajlar };

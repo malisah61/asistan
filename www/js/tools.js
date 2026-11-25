@@ -52,6 +52,9 @@ export const ARACLAR = [
     ['repo', 'dal']),
   fn('apk_linki', 'Bir dalın en son APK\'sının indirme linkini verir. Derleme sürüyorsa önce kontrol_bekle çağır. İş bitince bu linki kullanıcıya MUTLAKA ver.',
     { repo: S('sahip/repo'), dal: S('dal') }, ['repo', 'dal']),
+  fn('dali_birlestir', 'İşin bittiği dalı ana dala alır (PR açıp hemen birleştirir, dalı siler). Yalnızca dalın SON commit\'i kontrol_bekle ile doğrulandıysa çalışır. Kullanıcıya sormadan kullan.',
+    { repo: S('sahip/repo'), dal: S('birleştirilecek dal'), baslik: S('ana dalda görünecek kısa başlık'), aciklama: S('ne değişti (kısa)') },
+    ['repo', 'dal', 'baslik']),
   fn('pr_birlestir', 'PR\'ı ana dala birleştirir (squash). Yalnızca kontroller geçtiyse ve kullanıcı istediyse kullan; kullanıcıdan onay istenir. Birleşince ana dalın APK\'sı da derlenir.',
     { repo: S('sahip/repo'), numara: N('PR numarası'), baslik: S('birleştirme commit başlığı (isteğe bağlı)') }, ['repo', 'numara']),
   fn('pr_ac', 'Daldaki değişiklikler için Pull Request açar.',
@@ -94,6 +97,7 @@ const PAHALI_WORKFLOW = /siparis|sipari[sş]|uret|üret|modal|gpu|deploy|yayin|y
 // Sprite Atölye'nin Modal harcama sınırı var ($30, kart limiti $0); aşamaz. Girdi kontrolü yine yapılır.
 const SERBEST_REPO = /\/sprite-atolye$/i;
 const YAZMA = new Set(['dosya_yaz', 'dosya_duzenle', 'dosya_sil', 'pr_ac', 'actions_baslat', 'dal_olustur', 'kontrol_kur', 'apk_kur', 'pr_birlestir', 'claudea_devret']);
+// dali_birlestir bilerek YAZMA'da değil: kullanıcı PR/onay süreciyle uğraşmak istemiyor; güvence "son commit doğrulandı" şartı.
 // Tek araç sonucu üst sınırı; büyük dosyalar baslangic/bitis ile parça parça okunur (bağlam küçük kalsın)
 const MAKS = 10000;
 const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -162,6 +166,7 @@ async function kontrolBekle(ctx, { repo, dal }) {
       if (!basarisiz.length) {
         ctx.gorev.kontrolHata = 0;
         ctx.gorev.dogrulandi = true;
+        ctx.gorev.dogrulananlar = [...(ctx.gorev.dogrulananlar || []), `${repo}#${sha}`];
         return `✅ Tüm kontroller geçti (${runs.map((r) => r.ad).join(', ')}).`;
       }
       ctx.gorev.kontrolHata = (ctx.gorev.kontrolHata || 0) + 1;
@@ -332,6 +337,31 @@ export async function calistir(ad, arg, ctx) {
         (guncel ? 'Bu APK dalın en son commit\'inden derlendi.' : `UYARI: Bu APK dalın son commit'inden (${son.slice(0, 7)}) önce derlenmiş; yeni derleme bitmemiş olabilir, kontrol_bekle çağırıp tekrar bak.`) +
         '\nBu linki son raporda kullanıcıya ver (telefondan indirip kurabilir).';
     }
+    case 'dali_birlestir': {
+      const bilgi = await gh.istek(`/repos/${arg.repo}`);
+      const ana = bilgi.default_branch;
+      if (arg.dal === ana) return 'Zaten ana daldasın; birleştirilecek bir şey yok.';
+      const son = await gh.dalSonCommit(arg.repo, arg.dal);
+      if (!(ctx.gorev.dogrulananlar || []).includes(`${arg.repo}#${son}`)) {
+        return `BİRLEŞTİRİLMEDİ: ${arg.dal} dalının son commit'i (${son.slice(0, 7)}) doğrulanmadı. Önce kontrol_bekle çağır; geçerse tekrar dene.`;
+      }
+      const sahip = arg.repo.split('/')[0];
+      const acik = await gh.istek(`/repos/${arg.repo}/pulls?head=${encodeURIComponent(`${sahip}:${arg.dal}`)}&state=open`);
+      let pr = acik[0];
+      if (!pr) {
+        pr = await gh.istek(`/repos/${arg.repo}/pulls`, { method: 'POST', body: { title: arg.baslik, body: (arg.aciklama || '') + '\n\n_Asistan tarafından otomatik birleştirildi._', head: arg.dal, base: ana } });
+      }
+      try {
+        await gh.prBirlestir(arg.repo, pr.number, arg.baslik);
+      } catch (e) {
+        if (e.status === 405 || e.status === 409) {
+          return `BİRLEŞTİRİLEMEDİ: ${arg.dal} ana dalla çakışıyor (${pr.html_url}). Ana daldaki değişiklikleri dala al ya da kullanıcıya bildir.`;
+        }
+        throw e;
+      }
+      try { await gh.istek(`/repos/${arg.repo}/git/refs/heads/${encodeURIComponent(arg.dal)}`, { method: 'DELETE' }); } catch { /* dal silinemese de iş bitti */ }
+      return `✅ ${arg.dal} ana dala (${ana}) alındı: ${pr.html_url}. APK workflow'u varsa ana dalın APK'sı derleniyor: kontrol_bekle (dal: ${ana}) sonra apk_linki.`;
+    }
     case 'pr_birlestir': {
       const sha = await gh.prBirlestir(arg.repo, arg.numara, arg.baslik);
       return `PR #${arg.numara} birleştirildi (${String(sha).slice(0, 7)}). Ana dalın APK'sı derleniyorsa kontrol_bekle (dal: ana dal) sonra apk_linki.`;
@@ -476,3 +506,6 @@ async function siparisCiktilari(gh, repo, baslangic) {
     return '';
   }
 }
+
+// Testler için (test/*.test.mjs)
+export { siparisCiktilari, workflowGirdileri };
