@@ -26,6 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      # Tarayıcı ve Pages önbelleği eski JS'i göstermesin: her yayında adreslere sürüm eklenir
+      - name: Sürüm etiketi
+        run: |
+          v=${GITHUB_SHA::7}
+          sed -i -E "s#(src|href)=\"(js/app\.js|style\.css)\"#\1=\"\2?v=$v\"#g" www/index.html
+          sed -i -E "s#from '\./([a-z]+)\.js'#from './\1.js?v=$v'#g" www/js/*.js
+          grep -h "?v=" www/index.html www/js/*.js | head -3
       - uses: actions/upload-pages-artifact@v3
         with:
           path: www

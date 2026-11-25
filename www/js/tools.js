@@ -309,7 +309,12 @@ export async function calistir(ad, arg, ctx) {
       if (!GORSEL_UZANTI.test(arg.yol || '')) return 'HATA: yalnızca png, jpg, jpeg, webp ya da gif gösterilebilir.';
       if (!(await gh.sha(arg.repo, arg.yol, arg.dal))) return `HATA: ${arg.repo}/${arg.yol} bulunamadı${arg.dal ? ` (${arg.dal} dalında)` : ''}. dosya_agaci ile doğru yolu bul.`;
       ctx.gorsel?.({ repo: arg.repo, yol: arg.yol, dal: arg.dal || '', aciklama: arg.aciklama || '' });
-      return 'Görsel sohbete eklendi; kullanıcı görüyor. Raporunda ayrıca linkini vermene gerek yok.';
+      // Model eski bir dosyayı "yeni" sanmasın: dosyanın gerçekten ne zaman değiştiğini söyle
+      let son = null;
+      try { son = await gh.sonDegisiklik(arg.repo, arg.yol, arg.dal); } catch { /* bilgi şart değil */ }
+      return 'Görsel sohbete eklendi; kullanıcı görüyor.' +
+        (son ? `\nBu dosya en son ${son.tarih?.slice(0, 16).replace('T', ' ')} tarihinde "${son.mesaj}" (${son.sha}) commit'iyle değişti. ` +
+          'Açıklaman bununla tutarlı mı kontrol et: bu commit senin ya da az önceki üretimin değilse görsel ESKİ olabilir; kullanıcıya "yeni" deme, doğrusunu söyle.' : '');
     }
     case 'ders_ekle':
       await hafiza.dersEkle(arg.ders, { kapsam: arg.kapsam, etiketler: arg.etiketler, repo: arg.repo || ctx.aktifRepo });

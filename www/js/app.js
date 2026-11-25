@@ -136,7 +136,8 @@ function mesajCiz(m) {
   }
   const d = document.createElement('div');
   d.className = 'mesaj ' + m.rol;
-  d.innerHTML = md(m.metin) + (m.alt ? `<div class="alt">${kacis(m.alt)}</div>` : '');
+  // Tanınmayan mesaj türü (ör. yeni sürümden gelen) "undefined" yazmasın
+  d.innerHTML = md(m.metin ?? '') + (m.alt ? `<div class="alt">${kacis(m.alt)}</div>` : '');
   return d;
 }
 

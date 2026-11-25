@@ -73,6 +73,14 @@ export class GitHub {
     return { sha: r.sha, icerik: r.content ? b64Decode(r.content) : await this.istek(r.download_url, { ham: true }) };
   }
 
+  /** Bir dosyaya dokunan son commit: ne zaman, hangi mesajla değişti. */
+  async sonDegisiklik(repo, yol, dal) {
+    const q = `path=${encodeURIComponent(yol)}&per_page=1${dal ? `&sha=${encodeURIComponent(dal)}` : ''}`;
+    const r = await this.istek(`/repos/${repo}/commits?${q}`);
+    const c = r[0];
+    return c ? { tarih: c.commit.author?.date || c.commit.committer?.date, mesaj: c.commit.message.split('\n')[0], sha: c.sha.slice(0, 7) } : null;
+  }
+
   /** Görseli tarayıcıda gösterilecek URL olarak getirir (gizli repolar dahil; token ile). */
   async gorselUrl(repo, yol, dal) {
     const q = dal ? `?ref=${encodeURIComponent(dal)}` : '';
