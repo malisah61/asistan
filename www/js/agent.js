@@ -416,8 +416,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
     }
     bosYanit = 0;
 
-    // Yalnızca okuma yapan çağrılar aynı anda çalıştırılır; yazma içeren yanıtlar sırayla
-    const paralel = cagrilar.length > 1 && cagrilar.every((c) => OKUMA.has(c.function?.name));
+    // Okuma çağrıları aynı anda başlatılır; yazma/silme içeren çağrılar sırayla işlenir (çakışma olmasın)
     const calistirBir = async (c) => {
       const arg = jsonOnar(c.function?.arguments);
       if (arg === null) return { arg, sonuc: 'HATA: argümanlar geçerli JSON değil. Daha kısa parçalarla ve geçerli JSON ile tekrar dene.', sure: 0 };
