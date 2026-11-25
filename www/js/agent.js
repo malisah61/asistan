@@ -440,8 +440,8 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
       let arg;
       let sonuc;
       let sure;
-      if (hazir) {
-        ({ arg, sonuc, sure } = hazir[ci]);
+      if (hazir.has(ci)) {
+        ({ arg, sonuc, sure } = hazir.get(ci));
       } else {
         ui.durum(`${ad} çalışıyor…`);
         ({ arg, sonuc, sure } = await calistirBir(c));
