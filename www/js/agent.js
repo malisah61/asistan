@@ -168,7 +168,7 @@ async function planCikar({ ayar, gh, aktifRepo, istek, gecmis, ui, gorev }) {
       // Ajan aynı haritayı repo_haritasi ile tekrar isterse GitHub'a gitmesin
       if (gorev) {
         gorev.haritaOnbellek = gorev.haritaOnbellek || {};
-        gorev.haritaOnbellek[`${aktifRepo}#`] = harita;
+        gorev.haritaOnbellek[`${aktifRepo}#`] = harita; // varsayılan dal: tools.js anahtarı `${repo}#${dal||''}`
       }
     } catch { /* harita olmadan da plan çıkarılabilir */ }
   }
