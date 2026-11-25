@@ -10,6 +10,7 @@ const fn = (name, description, properties = {}, required = []) => ({
 const S = (description) => ({ type: 'string', description });
 const N = (description) => ({ type: 'integer', description });
 const B = (description) => ({ type: 'boolean', description });
+const O = (description) => ({ type: 'object', description, additionalProperties: { type: 'string' } });
 
 export const ARACLAR = [
   fn('repolari_listele', 'Kullanıcının GitHub repolarını listeler.'),
@@ -52,8 +53,12 @@ export const ARACLAR = [
     { repo: S('sahip/repo'), dal: S('dal (isteğe bağlı)') }, ['repo']),
   fn('actions_hata', 'Başarısız bir Actions çalışmasının hata loglarını getirir.',
     { repo: S('sahip/repo'), calisma_id: S('çalışma id') }, ['repo', 'calisma_id']),
-  fn('actions_baslat', 'workflow_dispatch destekleyen bir workflow\'u başlatır.',
-    { repo: S('sahip/repo'), workflow: S('workflow dosya adı, örn. apk.yml'), dal: S('dal') }, ['repo', 'workflow']),
+  fn('actions_baslat', 'workflow_dispatch destekleyen bir workflow\'u başlatır. Workflow girdi (inputs) alıyorsa hepsini girdiler ile ver: varsayılanlar başka bir repoyu hedefliyor olabilir.',
+    {
+      repo: S('sahip/repo'), workflow: S('workflow dosya adı, örn. apk.yml'), dal: S('dal'),
+      girdiler: O('workflow girdileri, örn. {"hedef": "malisah61/acikdunya"}'),
+      varsayilan_tamam: B('girdileri bilerek varsayılan bıraktıysan true'),
+    }, ['repo', 'workflow']),
   fn('danis', 'Takıldığında daha güçlü planlayıcı modele danışır. Ne denediğini, hatayı ve ilgili kodu soruya yaz.',
     { soru: S('ayrıntılı soru') }, ['soru']),
   fn('claudea_devret', 'Üç denemede de çözemediğin ya da senin için fazla zor bir işi Claude\'a devreder: repoda "claude" etiketli issue açar. Gece çalışan görev bunu çözer.',
@@ -236,8 +241,20 @@ export async function calistir(ad, arg, ctx) {
       return JSON.stringify(await gh.calismalar(arg.repo, arg.dal));
     case 'actions_hata':
       return kisalt(JSON.stringify(await gh.calismaHatalari(arg.repo, arg.calisma_id), null, 1));
-    case 'actions_baslat':
-      return await gh.calismaBaslat(arg.repo, arg.workflow, arg.dal);
+    case 'actions_baslat': {
+      const girdiler = arg.girdiler && typeof arg.girdiler === 'object' ? arg.girdiler : {};
+      const tanimli = await workflowGirdileri(gh, arg.repo, arg.workflow, arg.dal);
+      // Varsayılanı olmayan ya da başka bir repoyu gösteren girdiler mutlaka açıkça verilmeli
+      const eksik = tanimli.filter((g) => !(g.ad in girdiler) && (g.varsayilan === undefined || g.varsayilan.includes('/')));
+      // Yanlış varsayılanla başlatmak pahalı olabilir (ör. başka oyun için GPU'da üretim): önce sor
+      if (eksik.length && !arg.varsayilan_tamam) {
+        return 'BAŞLATILMADI: Bu workflow şu girdileri alıyor ve sen vermedin:\n' +
+          eksik.map((g) => `- ${g.ad}${g.varsayilan !== undefined ? ` (varsayılan: "${g.varsayilan}")` : ''}${g.aciklama ? ` — ${g.aciklama}` : ''}`).join('\n') +
+          '\nDoğru değerleri girdiler ile ver. Varsayılanlar bu iş için gerçekten doğruysa varsayilan_tamam: true ile tekrar çağır.';
+      }
+      const temiz = Object.fromEntries(Object.entries(girdiler).map(([k, v]) => [k, String(v)]));
+      return await gh.calismaBaslat(arg.repo, arg.workflow, arg.dal, Object.keys(temiz).length ? temiz : undefined);
+    }
     case 'danis': {
       const plan = ctx.gorev.plan?.length ? '\nPlan:\n' + ctx.gorev.plan.map((m) => `[${m.durum}] ${m.metin}`).join('\n') : '';
       const { message, model } = await sohbet(ayar, [
@@ -269,3 +286,40 @@ export async function calistir(ad, arg, ctx) {
       return `Bilinmeyen araç: ${ad}. Kullanılabilenler: ${[...ARAC_ADLARI].join(', ')}`;
   }
 }
+
+/** Workflow dosyasındaki workflow_dispatch girdilerini (ad, varsayılan, açıklama) basitçe okur. */
+async function workflowGirdileri(gh, repo, workflow, dal) {
+  let metin;
+  try {
+    metin = (await gh.dosyaOku(repo, `.github/workflows/${workflow}`, dal)).icerik;
+  } catch {
+    return [];
+  }
+  const satirlar = metin.split('\n');
+  const bas = satirlar.findIndex((l) => /^\s*workflow_dispatch:\s*$/.test(l));
+  if (bas < 0) return [];
+  const ic = satirlar.slice(bas + 1);
+  const i = ic.findIndex((l) => /^\s*inputs:\s*$/.test(l));
+  if (i < 0 || (ic.slice(0, i).some((l) => l.trim() && !l.trim().startsWith('#') && girinti(l) <= girinti(satirlar[bas])))) return [];
+  const girdiGirinti = girinti(ic[i]);
+  const sonuc = [];
+  let son = null;
+  for (const l of ic.slice(i + 1)) {
+    if (!l.trim() || l.trim().startsWith('#')) continue;
+    const g = girinti(l);
+    if (g <= girdiGirinti) break;
+    const m = l.trim().match(/^([\w-]+):\s*(.*)$/);
+    if (!m) continue;
+    if (son === null || g <= son.girinti) {
+      son = { ad: m[1], girinti: g };
+      sonuc.push(son);
+    } else if (m[1] === 'default') {
+      son.varsayilan = m[2].replace(/^['"]|['"]$/g, '');
+    } else if (m[1] === 'description') {
+      son.aciklama = m[2].replace(/^['"]|['"]$/g, '');
+    }
+  }
+  return sonuc;
+}
+
+const girinti = (l) => l.match(/^\s*/)[0].length;
