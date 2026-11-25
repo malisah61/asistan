@@ -538,45 +538,54 @@ const ortamDegiskenleri = () => globalThis.process?.env || {};
 const varlikCoz = (s) => s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
   .replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 
-/** DuckDuckGo'nun HTML sonuç sayfasını ayrıştırır (anahtar gerekmez). */
-export function ddgAyristir(html) {
+/** Bing sonuç sayfasını ayrıştırır (anahtar gerekmez; GitHub sunucularından erişilebiliyor). */
+export function bingAyristir(html) {
   const sonuc = [];
-  for (const parca of html.split('class="result__a"').slice(1)) {
-    const href = (parca.match(/href="([^"]+)"/) || [])[1] || '';
-    const baslik = varlikCoz((parca.match(/>([\s\S]*?)<\/a>/) || [])[1] || '');
-    const ozet = varlikCoz((parca.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/) || [])[1] || '');
-    let url = href.replace(/&amp;/g, '&');
-    const uddg = url.match(/[?&]uddg=([^&]+)/);
-    if (uddg) url = decodeURIComponent(uddg[1]);
-    if (url.startsWith('//')) url = 'https:' + url;
-    if (/^https?:\/\//.test(url) && !/duckduckgo\.com\/y\.js/.test(url)) sonuc.push({ baslik, url, ozet });
+  for (const parca of html.split('class="b_algo"').slice(1)) {
+    const a = parca.match(/<h2[^>]*>\s*<a [^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+    if (!a) continue;
+    let url = a[1].replace(/&amp;/g, '&');
+    // Bing yönlendirme linki: ...&u=a1<base64url(gerçek adres)>
+    const u = url.includes('bing.com/ck/') && url.match(/[?&]u=a1([^&]+)/);
+    if (u) {
+      try { url = Buffer.from(u[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'); } catch { continue; }
+    }
+    const ozet = varlikCoz((parca.match(/<p[^>]*>([\s\S]*?)<\/p>/) || [])[1] || '');
+    if (/^https?:\/\//.test(url) && !/^https?:\/\/[^/]*bing\.com\//.test(url)) sonuc.push({ baslik: varlikCoz(a[2]), url, ozet });
   }
   return sonuc;
 }
 
 async function webAra(sorgu, ortam) {
   if (!sorgu) return 'HATA: sorgu boş.';
-  let liste = [];
-  if (ortam.JINA_ANAHTAR) {
-    try {
+  const kaynaklar = [
+    // İsteğe bağlı: JINA_ANAHTAR secret'ı varsa en temiz sonuç
+    ortam.JINA_ANAHTAR && (async () => {
       const r = await fetch('https://s.jina.ai/?q=' + encodeURIComponent(sorgu), {
         headers: { Authorization: `Bearer ${ortam.JINA_ANAHTAR}`, Accept: 'application/json', 'X-Respond-With': 'no-content' },
         signal: AbortSignal.timeout(WEB_SURE),
       });
-      if (r.ok) liste = ((await r.json()).data || []).map((x) => ({ baslik: x.title, url: x.url, ozet: x.description || '' }));
-    } catch { /* DuckDuckGo'ya düş */ }
+      return r.ok ? ((await r.json()).data || []).map((x) => ({ baslik: x.title, url: x.url, ozet: x.description || '' })) : [];
+    }),
+    async () => {
+      const r = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(sorgu)}&setlang=en`, {
+        headers: { 'User-Agent': UA, 'Accept-Language': 'en,tr;q=0.8' }, signal: AbortSignal.timeout(WEB_SURE),
+      });
+      return r.ok ? bingAyristir(await r.text()) : [];
+    },
+    // Yedek: Marginalia açık arama API'si (küçük ama anahtarsız)
+    async () => {
+      const r = await fetch(`https://api.marginalia.nu/public/search/${encodeURIComponent(sorgu)}?count=8`, { signal: AbortSignal.timeout(WEB_SURE) });
+      return r.ok ? ((await r.json()).results || []).map((x) => ({ baslik: x.title, url: x.url, ozet: x.description || '' })) : [];
+    },
+  ].filter(Boolean);
+  let liste = [];
+  for (const k of kaynaklar) {
+    try { liste = await k(); } catch { liste = []; }
+    if (liste.length) break;
   }
   if (!liste.length) {
-    const r = await fetch('https://html.duckduckgo.com/html/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA },
-      body: 'q=' + encodeURIComponent(sorgu),
-      signal: AbortSignal.timeout(WEB_SURE),
-    });
-    liste = ddgAyristir(await r.text());
-  }
-  if (!liste.length) {
-    return 'Arama sonuç vermedi (arama servisi isteği engellemiş olabilir). Sorguyu değiştir ya da bildiğin bir belge adresini web_oku ile doğrudan oku.';
+    return 'Arama sonuç vermedi (arama servisleri isteği engellemiş olabilir). Sorguyu değiştir ya da bildiğin bir belge adresini web_oku ile doğrudan oku.';
   }
   return liste.slice(0, 8).map((x, i) => `${i + 1}. ${x.baslik}\n   ${x.url}${x.ozet ? '\n   ' + x.ozet.slice(0, 240) : ''}`).join('\n') +
     '\n\nGerekli sonuçları web_oku ile oku; raporda kullandığın linkleri ver.';

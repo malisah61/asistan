@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { McpIstemci, baglayicilariYukle, aracAdi } from '../www/js/mcp.js';
-import { ddgAyristir, godotXmlOzet } from '../www/js/tools.js';
+import { bingAyristir, godotXmlOzet } from '../www/js/tools.js';
 
 const json = (j, h = {}) => new Response(JSON.stringify(j), { status: 200, headers: { 'content-type': 'application/json', ...h } });
 
@@ -41,11 +41,16 @@ test('MCP: bağlanamayan sunucu görevi bozmaz, not düşer', async () => {
   assert.equal(aracAdi('ç ok', 'a.b'), 'mcp___ok_a_b');
 });
 
-test('DuckDuckGo HTML sonuçları ayrıştırılır', () => {
-  const html = '<div><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdocs.godotengine.org%2Fen%2F4.3%2F&amp;rut=1">Godot <b>Docs</b></a>' +
-    '<a class="result__snippet" href="#">Official &amp; free</a></div>' +
-    '<a class="result__a" href="https://duckduckgo.com/y.js?ad=1">Reklam</a>';
-  assert.deepEqual(ddgAyristir(html), [{ baslik: 'Godot Docs', url: 'https://docs.godotengine.org/en/4.3/', ozet: 'Official & free' }]);
+test('Bing sonuçları ayrıştırılır, yönlendirme linki çözülür', () => {
+  const u = Buffer.from('https://docs.godotengine.org/en/4.3/').toString('base64url');
+  const html = `<li class="b_algo" data-id><div class="b_tpcn"><a class="tilk" href="https://www.bing.com/ck/a?x">site</a></div>` +
+    `<h2><a target="_blank" href="https://www.bing.com/ck/a?!&amp;&amp;p=1&amp;u=a1${u}&amp;ntb=1">Godot <strong>Docs</strong></a></h2>` +
+    `<div class="b_caption"><p class="b_lineclamp2">Official &amp; free</p></div></li>` +
+    `<li class="b_algo"><h2><a href="https://example.com/a">Düz</a></h2></li>`;
+  assert.deepEqual(bingAyristir(html), [
+    { baslik: 'Godot Docs', url: 'https://docs.godotengine.org/en/4.3/', ozet: 'Official & free' },
+    { baslik: 'Düz', url: 'https://example.com/a', ozet: '' },
+  ]);
 });
 
 test('Godot XML referansı imzalarla özetlenir', () => {
