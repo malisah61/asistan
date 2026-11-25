@@ -160,11 +160,16 @@ async function sistemMesaji(hafiza, aktifRepo, gh, istek) {
 }
 
 /** Güçlü model önce düşünür: hangi dosyalar, hangi adımlar, hangi riskler. */
-async function planCikar({ ayar, gh, aktifRepo, istek, gecmis, ui }) {
+async function planCikar({ ayar, gh, aktifRepo, istek, gecmis, ui, gorev }) {
   let harita = '';
   if (aktifRepo) {
     try {
       harita = await repoHaritasi(gh, aktifRepo, null, { durum: ui.durum });
+      // Ajan aynı haritayı repo_haritasi ile tekrar isterse GitHub'a gitmesin
+      if (gorev) {
+        gorev.haritaOnbellek = gorev.haritaOnbellek || {};
+        gorev.haritaOnbellek[`${aktifRepo}#`] = harita;
+      }
     } catch { /* harita olmadan da plan çıkarılabilir */ }
   }
   const sonKonusma = gecmis.slice(-4).map((m) => `${m.role === 'user' ? 'Kullanıcı' : 'Asistan'}: ${String(m.content).slice(0, 600)}`).join('\n');
