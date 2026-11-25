@@ -598,20 +598,33 @@ function htmlMetin(html) {
     .replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
 }
 
+const OKUMA_DENEME = 3;
+const OKUMA_BEKLEME = 4000;
+
 async function webOku(url, sayfa, ortam) {
   if (!/^https?:\/\//i.test(url || '')) return 'HATA: url https:// ile başlamalı.';
   let metin = '';
-  try {
-    // Jina Reader sayfayı temiz Markdown'a çevirir (anahtarsız da çalışır, dakikada ~20 istek)
-    const r = await fetch('https://r.jina.ai/' + url, {
-      headers: { Accept: 'text/plain', ...(ortam.JINA_ANAHTAR ? { Authorization: `Bearer ${ortam.JINA_ANAHTAR}` } : {}) },
+  const durumlar = [];
+  // Jina Reader sayfayı temiz Markdown'a çevirir (anahtarsız da çalışır, dakikada ~20 istek); geçici reddi tekrar dener
+  for (let d = 0; d < OKUMA_DENEME && !metin.trim(); d++) {
+    if (d) await new Promise((r) => setTimeout(r, OKUMA_BEKLEME * d));
+    try {
+      const r = await fetch('https://r.jina.ai/' + url, {
+        headers: { Accept: 'text/plain', ...(ortam.JINA_ANAHTAR ? { Authorization: `Bearer ${ortam.JINA_ANAHTAR}` } : {}) },
+        signal: AbortSignal.timeout(WEB_SURE),
+      });
+      durumlar.push(`okuyucu ${r.status}`);
+      if (r.ok) metin = await r.text();
+      else if (![429, 500, 502, 503, 504].includes(r.status)) break;
+    } catch (e) { durumlar.push(`okuyucu ${e.name}`); }
+  }
+  if (!metin.trim()) {
+    const r = await fetch(url, {
+      headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9,tr;q=0.8' },
       signal: AbortSignal.timeout(WEB_SURE),
     });
-    if (r.ok) metin = await r.text();
-  } catch { /* doğrudan oku */ }
-  if (!metin.trim()) {
-    const r = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(WEB_SURE) });
-    if (!r.ok) return `HATA: sayfa açılamadı (HTTP ${r.status}).`;
+    durumlar.push(`site ${r.status}`);
+    if (!r.ok) return `HATA: sayfa açılamadı (${durumlar.join(', ')}). Başka bir kaynak dene.`;
     const tur = r.headers.get('content-type') || '';
     const govde = await r.text();
     metin = tur.includes('html') ? htmlMetin(govde) : govde;
