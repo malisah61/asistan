@@ -24,7 +24,7 @@ export function sozdizimKontrol(yol, icerik) {
 }
 
 // ---------- Basit satır diff'i (gözden geçirme ve onay için) ----------
-export function diffUret(eski, yeni, cevre = 3) {
+export function diffUret(eski, yeni, cevre = 3, maks = 12000) {
   const a = (eski || '').split('\n');
   const b = (yeni || '').split('\n');
   let bas = 0;
@@ -38,7 +38,7 @@ export function diffUret(eski, yeni, cevre = 3) {
   for (let i = bas; i <= sb; i++) satirlar.push('+ ' + b[i]);
   for (let i = sa + 1; i < Math.min(a.length, sa + 1 + cevre); i++) satirlar.push('  ' + a[i]);
   const metin = satirlar.join('\n');
-  return metin.length > 12000 ? metin.slice(0, 12000) + '\n…(diff kesildi)' : metin;
+  return metin.length > maks ? metin.slice(0, maks) + '\n…(diff kesildi)' : metin;
 }
 
 // ---------- Repo haritası: dosyalar + içlerindeki tanımlar ----------

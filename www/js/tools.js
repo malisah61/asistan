@@ -106,13 +106,14 @@ async function eskiIcerik(gh, repo, yol, dal) {
 
 /** Commit öncesi: sözdizimi + bağımsız gözden geçirme. Engel varsa açıklama döner. */
 const KUCUK_DEGISIKLIK = 12; // satır
+const GOZDEN_DIFF_SINIRI = 30_000; // karakter; kesik diff gözden geçireni yanıltıyordu
 
 async function yazmadanOnce(ctx, { repo, yol, eski, yeni, zorla }) {
   const hata = sozdizimKontrol(yol, yeni);
   if (hata) return `COMMIT YAPILMADI — sözdizimi hatası: ${hata}\nDüzeltip tekrar dene.`;
 
   if (!ctx.ayar.gozdenGecir || zorla) return null;
-  const diff = diffUret(eski, yeni);
+  const diff = diffUret(eski, yeni, 3, GOZDEN_DIFF_SINIRI);
   // Küçük değişiklik için ayrı bir model isteği beklemeye değmez; sözdizimi kontrolü yukarıda yapıldı
   const degisen = diff.split('\n').filter((l) => /^[+-](?![+-]{2})/.test(l)).length;
   if (degisen < KUCUK_DEGISIKLIK) return null;
@@ -122,7 +123,10 @@ async function yazmadanOnce(ctx, { repo, yol, eski, yeni, zorla }) {
         role: 'system',
         content: 'Kıdemli bir yazılımcı olarak bir kod değişikliğini gözden geçiriyorsun. Yalnızca GERÇEK hatalara itiraz et: ' +
           'çalışmayacak kod, yanlış değişken/fonksiyon adı, sözdizimi, mantık hatası, silinmiş ama hâlâ kullanılan kod, isteği karşılamama, ' +
-          'yarım bırakılmış ("…", "TODO", "kalanı aynı") kod. Stil tercihlerine itiraz etme. Yalnızca JSON döndür: ' +
+          'yarım bırakılmış ("…", "TODO", "kalanı aynı") kod. Stil tercihlerine itiraz etme. ' +
+          'Bu commit işin YALNIZCA bir parçası olabilir: isteğin tamamını karşılamıyor diye itiraz etme. ' +
+          'Diff "(diff kesildi)" ile bitiyorsa kesilen kısım hakkında (dosya yarım, sonu eksik vb.) itiraz etme; yalnızca görünen kısımda kesin hata varsa itiraz et. ' +
+          'Emin olmadığın şeye itiraz etme: her itiraz dosyanın baştan yazılması demek. Yalnızca JSON döndür: ' +
           '{"onay": true} ya da {"onay": false, "sorunlar": ["…"]}',
       },
       { role: 'user', content: `Görev: ${ctx.gorev.istek}\nDosya: ${yol}\n\nDiff:\n${diff}` },

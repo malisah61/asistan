@@ -190,16 +190,59 @@ const boyut = (m) => (m.content?.length || 0) + JSON.stringify(m.tool_calls || '
 
 /** Uzun görevlerde eski araç sonuçlarını ve büyük dosya içeriklerini kısaltır. */
 // Her adımda bütün bağlam yeniden gönderiliyor; küçük tutmak EVREN'in her adımını hızlandırır
-const BAGLAM_SINIRI = 35_000;
+// 35k'da dört dosya bile sığmıyordu: kısaltılan dosyalar tekrar tekrar okunup turlar artıyordu (25 Kasım, 123 okuma)
+const BAGLAM_SINIRI = 60_000;
 // Kısa istekler (ör. "devam et", tek satırlık düzeltme) için ayrı plan isteği yapılmaz
 const PLAN_ESIGI = 60;
+
+const dosyaYolu = (a) => (a && a.repo && a.yol ? `${a.repo}#${a.dal || ''}#${a.yol}` : null);
+
+/** Her dosyanın bağlamdaki güncel hali: yazmadan sonraki son okumalar ya da (sonra okunmadıysa) son tam yazım. */
+function guncelMesajlar(mesajlar) {
+  const sonYazma = new Map(); // dosya yolu → mesaj indeksi (dosya_yaz tam içerik taşır)
+  const sonOkuma = new Map(); // okuma anahtarı (yol + satır aralığı) → mesaj indeksi
+  mesajlar.forEach((m, i) => {
+    if (m.role === 'tool' && m.okumaAnahtari) sonOkuma.set(m.okumaAnahtari, i);
+    if (m.role === 'assistant' && m.tool_calls) {
+      for (const c of m.tool_calls) {
+        if (c.function?.name === 'dosya_yaz') {
+          const y = dosyaYolu(jsonOnar(c.function.arguments));
+          if (y) sonYazma.set(y, i);
+        }
+      }
+    }
+  });
+  const guncel = new Set();
+  const okunanYollar = new Map(); // yol → en son okuma indeksi
+  for (const [anahtar, i] of sonOkuma) {
+    const yol = anahtar.replace(/#[^#]*$/, '');
+    if (i > (sonYazma.get(yol) ?? -1)) guncel.add(i);
+    okunanYollar.set(yol, Math.max(i, okunanYollar.get(yol) ?? -1));
+  }
+  for (const [yol, i] of sonYazma) if (i > (okunanYollar.get(yol) ?? -1)) guncel.add(i);
+  return guncel;
+}
 
 function sikistir(mesajlar, gorev, limit = BAGLAM_SINIRI) {
   let toplam = mesajlar.reduce((t, m) => t + boyut(m), 0);
   if (toplam <= limit) return;
   const korunan = mesajlar.length - 6; // son 6 mesaj olduğu gibi kalsın
-  for (let i = 2; i < korunan && toplam > limit * 0.6; i++) {
-    const m = mesajlar[i];
+  // Önce eskimiş içerikler (dosyanın sonradan okunmuş/yazılmış eski halleri) kısaltılır; her dosyanın güncel hali
+  // bağlamda kalır ki model aynı dosyayı tekrar okumak zorunda kalmasın. Yine sığmazsa hepsi.
+  const guncel = guncelMesajlar(mesajlar);
+  // Eskiler bolca kısaltılır (her turda yeniden kısaltmaya gerek kalmasın); güncel içeriğe yalnızca sınır aşılırsa dokunulur
+  for (const [tur, hedef] of [['eski', limit * 0.7], ['hepsi', limit]]) {
+    if (toplam <= hedef) continue;
+    for (let i = 2; i < korunan && toplam > hedef; i++) {
+      if (tur === 'eski' && guncel.has(i)) continue;
+      toplam -= kisaltBir(mesajlar[i], gorev);
+    }
+  }
+}
+
+/** Mesajı kısaltır, kazanılan karakter sayısını döner. */
+function kisaltBir(m, gorev) {
+  {
     const once = boyut(m);
     if (m.role === 'tool' && m.content.length > 500 && !m.sikisti) {
       m.content = m.content.slice(0, 400) + `\n…(eski sonuç kısaltıldı; gerekirse yeniden oku)`;
@@ -217,7 +260,7 @@ function sikistir(mesajlar, gorev, limit = BAGLAM_SINIRI) {
         }
       }
     }
-    toplam -= once - boyut(m);
+    return once - boyut(m);
   }
 }
 

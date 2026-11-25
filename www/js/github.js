@@ -33,7 +33,9 @@ export class GitHub {
       try {
         return await this.tekIstek(yol, secenek);
       } catch (e) {
-        const gecici = e.status >= 500 || (e instanceof TypeError && !e.status);
+        // 409 "rule did not run because of a timeout": GitHub'ın kural denetimi zaman aşımına uğradı, içerik sorunu değil
+        const gecici = e.status >= 500 || (e instanceof TypeError && !e.status) ||
+          (e.status === 409 && /did not run because of a timeout/i.test(e.message));
         if (!tekrarlanabilir || !gecici || deneme >= GECICI_DENEME.length) throw e;
         await new Promise((r) => setTimeout(r, GECICI_DENEME[deneme]));
       }
