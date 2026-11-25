@@ -17,7 +17,7 @@ const VARSAYILAN = {
   hafizaRepo: '',
   anahtar: {},
   model: {},
-  sira: ['evren', 'gemini', 'openrouter', 'groq'],
+  sira: ['evren'],
   onayIste: true,
   ozDeg: true,
   planla: true,
@@ -25,15 +25,19 @@ const VARSAYILAN = {
   maksAdim: 40,
   aktifRepo: '',
   roller: {
-    planlayici: { saglayici: 'gemini', model: OTOMATIK },
-    gozden: { saglayici: 'groq', model: OTOMATIK },
+    planlayici: { saglayici: 'evren', model: OTOMATIK },
+    gozden: { saglayici: 'evren', model: OTOMATIK },
   },
 };
 let ayar = { ...VARSAYILAN, ...oku('ayar', {}) };
 ayar.roller = { ...VARSAYILAN.roller, ...(ayar.roller || {}) };
-// Sonradan eklenen sağlayıcılar eski kayıtlı sırada yok; EVREN varsayılan motor olduğu için en başa
+// Eski kayıtlarda kaldırılmış sağlayıcılar (Gemini, Groq, OpenRouter) olabilir
+ayar.sira = ayar.sira.filter((id) => PROVIDERS[id]);
 for (const id of Object.keys(PROVIDERS)) {
-  if (!ayar.sira.includes(id)) ayar.sira = id === 'evren' ? [id, ...ayar.sira] : [...ayar.sira, id];
+  if (!ayar.sira.includes(id)) ayar.sira.unshift(id);
+}
+for (const rol of Object.keys(ayar.roller)) {
+  if (!PROVIDERS[ayar.roller[rol]?.saglayici]) ayar.roller[rol] = { ...VARSAYILAN.roller[rol] };
 }
 let kayit = oku('sohbet', []); // [{rol, metin, ...}]
 let calisiyor = false;
@@ -320,7 +324,7 @@ function ayarlariAc() {
   const secenekler = Object.entries(PROVIDERS).map(([id, p]) => `<option value="${id}">${p.ad}</option>`).join('');
   for (const [rol, sec, inp] of [['planlayici', 'planSag', 'planModel'], ['gozden', 'gozSag', 'gozModel']]) {
     $(sec).innerHTML = secenekler;
-    $(sec).value = ayar.roller[rol]?.saglayici || 'gemini';
+    $(sec).value = ayar.roller[rol]?.saglayici || 'evren';
     $(inp).value = ayar.roller[rol]?.model || OTOMATIK;
   }
   saglayicilariCiz();

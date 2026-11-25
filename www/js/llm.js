@@ -1,5 +1,5 @@
 // Model sağlayıcıları — hepsi OpenAI uyumlu /chat/completions kullanır.
-// Bir sağlayıcının limiti dolunca (429) ya da hata verince sıradakine geçilir.
+// Şu an yalnızca EVREN var; yeni sağlayıcı buraya eklenirse limit/hata durumunda sıradakine geçilir.
 
 export const PROVIDERS = {
   evren: {
@@ -9,22 +9,7 @@ export const PROVIDERS = {
     anaModel: 'deepseek-v4.1-flash',
     // Ana model hata verirse diğer sağlayıcılara geçmeden önce bu denenir
     yedekModel: 'glm-5.3',
-    not: "SSB'nin yapay zeka platformu. Ücretsiz dönem 1 Aralık 2026'da bitiyor; ücretli olunca ya da kota dolunca otomatik olarak sıradakine geçer.",
-  },
-  gemini: {
-    ad: 'Gemini',
-    url: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    anahtarSayfasi: 'https://aistudio.google.com/apikey',
-  },
-  openrouter: {
-    ad: 'OpenRouter',
-    url: 'https://openrouter.ai/api/v1',
-    anahtarSayfasi: 'https://openrouter.ai/keys',
-  },
-  groq: {
-    ad: 'Groq',
-    url: 'https://api.groq.com/openai/v1',
-    anahtarSayfasi: 'https://console.groq.com/keys',
+    not: "SSB'nin yapay zeka platformu. Ücretsiz dönem 1 Aralık 2026'da bitiyor.",
   },
 };
 
@@ -50,7 +35,7 @@ export function sartOnayiAyarla(fn) {
 }
 
 const sartlarKabulEdilmediMi = (metin) => /terms_not_accepted/i.test(metin);
-// "quota" kelimesi tek başına yetmez: Gemini dakikalık limitte de "quota" der
+// "quota" kelimesi tek başına yetmez: dakikalık hız limitleri de "quota" diyebilir
 const ucretliMi = (status, metin) => status === 402 ||
   ([400, 403, 429].includes(status) && /payment|billing|insufficient|credit|balance|subscription|paid plan|free (tier|period).*(ended|expired)/i.test(metin));
 
@@ -78,12 +63,7 @@ async function sartlariOnayla(id, key, metin) {
 }
 
 function headers(id, key) {
-  const h = { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` };
-  if (id === 'openrouter') {
-    h['HTTP-Referer'] = 'https://github.com/malisah61/asistan';
-    h['X-Title'] = 'Asistan';
-  }
-  return h;
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` };
 }
 
 export function aktifSaglayicilar(ayar) {
@@ -105,12 +85,7 @@ export async function modelleriGetir(id, key, { tazele = false } = {}) {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
   }
   const veri = await r.json();
-  let liste = veri.data || veri.models || [];
-  if (id === 'openrouter') {
-    // Yalnızca ücretsiz ve araç (tool) kullanabilen modeller işimize yarar
-    liste = liste.filter((m) => String(m.id).endsWith(':free') &&
-      (!m.supported_parameters || m.supported_parameters.includes('tools')));
-  }
+  const liste = veri.data || veri.models || [];
   const modeller = liste.map((m) => String(m.id || m.name || '').replace(/^models\//, '')).filter(Boolean).sort();
   listeOnbellek[id] = { zaman: Date.now(), modeller };
   return modeller;
@@ -135,25 +110,6 @@ export function enIyiModel(id, modeller, tur = 'hizli') {
     puan = (m) => {
       const i = sira.findIndex((f) => f(m));
       return (i < 0 ? 0 : 100 - i * 10) + Math.min(surum(m), 9);
-    };
-  } else if (id === 'gemini') {
-    adaylar = modeller.filter((m) => /^gemini-\d/.test(m) &&
-      !/lite|image|tts|audio|live|embed|vision|native|computer|robotics|learnlm|aqa/i.test(m));
-    puan = (m) => surum(m) * 100 +
-      (tur === 'guclu' ? (/pro/.test(m) ? 50 : 0) : (/flash/.test(m) ? 50 : 0)) -
-      (/preview|exp/.test(m) ? 5 : 0) - (/-\d{2,}$|-\d{4}/.test(m) ? 2 : 0);
-  } else if (id === 'groq') {
-    adaylar = modeller.filter((m) => !/whisper|tts|guard|embed|vision|compound|playai|distil/i.test(m));
-    const sira = ['openai/gpt-oss-120b', 'moonshotai/kimi', 'qwen/qwen3', 'meta-llama/llama-4-maverick', 'llama-3.3-70b', 'openai/gpt-oss-20b'];
-    puan = (m) => {
-      const i = sira.findIndex((x) => m.includes(x));
-      return i < 0 ? 0 : 100 - i * 10;
-    };
-  } else if (id === 'openrouter') {
-    const sira = [/qwen.*coder/, /deepseek/, /kimi/, /glm/, /gpt-oss-120b/, /devstral/, /qwen3/, /llama-4/, /gemini/, /mistral/];
-    puan = (m) => {
-      const i = sira.findIndex((re) => re.test(m));
-      return (i < 0 ? 0 : 100 - i * 8) + Math.min(surum(m.split('/')[1] || ''), 9);
     };
   }
   if (!adaylar.length) adaylar = modeller;
@@ -253,7 +209,7 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
           if (ucretliMi(r.status, metin)) {
             ayar.dinlen = { ...(ayar.dinlen || {}), [id]: Date.now() + UCRETLI_BEKLEME };
             ayar.degisti = true;
-            durum(`${p.ad} ücretli olmuş ya da bakiye bitmiş, diğer sağlayıcıya geçiliyor…`);
+            durum(`${p.ad} ücretli olmuş ya da bakiye bitmiş…`);
             hatalar.push(`${p.ad} (${model}): ücret/bakiye hatası HTTP ${r.status} ${metin.slice(0, 150)}`);
             break;
           }
@@ -292,7 +248,7 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
         if (e.name === 'TimeoutError') {
           // Bir sonraki adım önce diğer sağlayıcılarla denensin
           bekleme[id] = Date.now() + KOTA_BEKLEME;
-          durum(`${p.ad} ${ISTEK_ZAMAN_ASIMI / 1000} sn yanıt vermedi, sıradakine geçiliyor…`);
+          durum(`${p.ad} ${ISTEK_ZAMAN_ASIMI / 1000} sn yanıt vermedi…`);
           hatalar.push(`${p.ad} (${model}): ${ISTEK_ZAMAN_ASIMI / 1000} sn içinde yanıt vermedi`);
         } else {
           hatalar.push(`${p.ad}: ${e.message}`);
