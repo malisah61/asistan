@@ -200,6 +200,10 @@ function planNotu(plan) {
 
 // ---------- Ana döngü ----------
 
+const GECICI_HATA = /yanıt vermedi|fetch failed|network|ECONNRESET|HTTP 5\d\d|HTTP 429/i;
+const AG_HATA_DENEME = 3;
+const AG_BEKLEME = 30_000;
+
 /**
  * ui: { durum(t), arac(ad, arg, sonuc), onayla(ad, ozet), durdurulduMu(), plan(maddeler) }
  */
@@ -234,6 +238,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
   const tekrar = new Map(); // aynı başarısız çağrıyı yakala
   let bosYanit = 0;
   let aracHataSayisi = 0;
+  let agHataSayisi = 0;
 
   for (let adim = 0; adim < maksAdim; adim++) {
     if (ui.durdurulduMu()) return { cevap: '(Durduruldu)', gorev };
@@ -257,8 +262,16 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
         });
         continue;
       }
+      // Sunucu geçici olarak yanıt vermediyse tüm görevi bırakma: biraz bekleyip aynı adımı tekrar dene
+      if (GECICI_HATA.test(e.message) && agHataSayisi < AG_HATA_DENEME && !ui.durdurulduMu()) {
+        agHataSayisi++;
+        ui.durum(`Model yanıt vermedi, ${AG_BEKLEME / 1000} sn sonra tekrar deneniyor (${agHataSayisi}/${AG_HATA_DENEME})…`);
+        await new Promise((r) => setTimeout(r, AG_BEKLEME));
+        continue;
+      }
       throw e;
     }
+    agHataSayisi = 0;
     const { message, saglayici, model } = yanit;
     let cagrilar = (message.tool_calls || []).map((c, i) => ({ ...c, id: c.id || `cagri_${adim}_${i}`, type: 'function' }));
     if (!cagrilar.length) cagrilar = metindenAracCagrilari(message.content, ARAC_ADLARI);

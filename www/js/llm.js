@@ -246,10 +246,16 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
         return { message, saglayici: p.ad, model };
       } catch (e) {
         if (e.name === 'TimeoutError') {
-          // Bir sonraki adım önce diğer sağlayıcılarla denensin
+          hatalar.push(`${p.ad} (${model}): ${ISTEK_ZAMAN_ASIMI / 1000} sn içinde yanıt vermedi`);
+          // Takılan model yerine yedeği dene; o da takılırsa bir sonraki adım önce diğer sağlayıcılarla denensin
+          if (p.yedekModel && !yedekte && model !== p.yedekModel) {
+            yedekte = true;
+            durum(`${p.ad}: ${model} yanıt vermedi, yedek model ${p.yedekModel} deneniyor…`);
+            model = p.yedekModel;
+            continue;
+          }
           bekleme[id] = Date.now() + KOTA_BEKLEME;
           durum(`${p.ad} ${ISTEK_ZAMAN_ASIMI / 1000} sn yanıt vermedi…`);
-          hatalar.push(`${p.ad} (${model}): ${ISTEK_ZAMAN_ASIMI / 1000} sn içinde yanıt vermedi`);
         } else {
           hatalar.push(`${p.ad}: ${e.message}`);
         }
