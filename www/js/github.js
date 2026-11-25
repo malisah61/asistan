@@ -186,6 +186,22 @@ export class GitHub {
     return r.sha;
   }
 
+  /** workflow_dispatch'ten sonra oluşan çalışmayı bulur (birkaç saniye sürebilir). */
+  async yeniCalisma(repo, workflowDosyasi, bas) {
+    for (const bekle of [3000, 5000, 8000, 12000]) {
+      await new Promise((r) => setTimeout(r, bekle));
+      const r = await this.istek(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflowDosyasi)}/runs?event=workflow_dispatch&per_page=5`);
+      const w = (r.workflow_runs || []).find((x) => Date.parse(x.created_at) >= bas - 30_000);
+      if (w) return { id: w.id, url: w.html_url, created_at: w.created_at };
+    }
+    return null;
+  }
+
+  async calisma(repo, id) {
+    const w = await this.istek(`/repos/${repo}/actions/runs/${id}`);
+    return { id: w.id, ad: w.name, durum: w.status, sonuc: w.conclusion, url: w.html_url, created_at: w.created_at };
+  }
+
   async releaseEtiket(repo, etiket) {
     try {
       return await this.istek(`/repos/${repo}/releases/tags/${encodeURIComponent(etiket)}`);

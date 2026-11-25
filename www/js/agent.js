@@ -129,6 +129,8 @@ async function sistemMesaji(hafiza, aktifRepo, gh, istek) {
     'Başka bir sistemi (workflow, API) çağırmadan önce tanımını oku; girdilerini açıkça ver, varsayılana güvenme.',
     'Para harcayabilen (GPU üretimi, yayın) ya da aktif repo dışındaki işlemler için kullanıcı onayı gerekir; bunu atlatmaya çalışma.',
     'İSTİSNA: Sprite Atölye (sprite-atolye) siparişleri onaysızdır, bütçesi kendi sınırlı. Oyuna görsel gerekiyorsa siparis.json\'u yaz ve siparis.yml\'i hedef/dal girdileriyle KENDİN başlat; kullanıcıya bırakma.',
+    'Başlattığın iş akışını actions_bekle ile bekle (bitince Sprite Atölye çıktılarının yollarını da verir); actions_durum\'u döngüde çağırma, aynı siparişi ikinci kez başlatma.',
+    'Klasör ya da dosya adını asla tahmin etme (ör. zaman damgalı klasörler): dosya_agaci ile klasor vererek listele.',
     '',
     '## İşi bitirmek',
     'Oyun ya da uygulama işinde iş, kullanıcının deneyebileceği bir şey verince biter:',

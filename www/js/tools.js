@@ -17,8 +17,8 @@ export const ARACLAR = [
   fn('repolari_listele', 'Kullanıcının GitHub repolarını listeler.'),
   fn('repo_haritasi', 'Repodaki dosyaları VE her kod dosyasındaki fonksiyon/sınıf tanımlarını satır numaralarıyla verir. Bir repoda işe başlarken İLK bunu çağır.',
     { repo: S('sahip/repo'), dal: S('dal (boşsa varsayılan)') }, ['repo']),
-  fn('dosya_agaci', 'Repodaki tüm dosya yollarını listeler (tanımsız, yalnızca yollar).',
-    { repo: S('sahip/repo'), dal: S('dal adı (boşsa varsayılan dal)') }, ['repo']),
+  fn('dosya_agaci', 'Repodaki dosya yollarını listeler. Büyük repolarda klasor ile daralt (ör. "siparis/kutuoyunu/"). Klasör ya da dosya adını TAHMİN ETME; önce listele.',
+    { repo: S('sahip/repo'), dal: S('dal adı (boşsa varsayılan dal)'), klasor: S('yalnızca bu klasörün altı (isteğe bağlı)') }, ['repo']),
   fn('dosya_oku', 'Dosyayı satır numaralarıyla okur. Büyük dosyalarda haritadaki satır numaralarına göre baslangic/bitis ver; tamamını okuma. Birden çok dosya gerekiyorsa hepsini AYNI yanıtta ayrı çağrılarla iste (paralel okunur, her ayrı tur çok zaman alır).',
     { repo: S('sahip/repo'), yol: S('dosya yolu'), dal: S('dal (isteğe bağlı)'), baslangic: N('ilk satır (isteğe bağlı)'), bitis: N('son satır (isteğe bağlı)') },
     ['repo', 'yol']),
@@ -57,7 +57,9 @@ export const ARACLAR = [
   fn('pr_ac', 'Daldaki değişiklikler için Pull Request açar.',
     { repo: S('sahip/repo'), baslik: S('PR başlığı'), aciklama: S('ne değişti, nasıl test edildi'), dal: S('değişiklik dalı'), hedef: S('hedef dal (boşsa varsayılan)') },
     ['repo', 'baslik', 'aciklama', 'dal']),
-  fn('actions_durum', 'Son GitHub Actions çalışmalarını ve sonuçlarını gösterir.',
+  fn('actions_bekle', 'Bir Actions çalışmasının bitmesini bekler (40 dk\'ya kadar) ve sonucu verir. Başlattığın bir iş akışını beklemek için bunu kullan; actions_durum\'u tekrar tekrar çağırma (her çağrı bir model turu harcar).',
+    { repo: S('sahip/repo'), calisma_id: S('çalışma id (actions_baslat verir)') }, ['repo', 'calisma_id']),
+  fn('actions_durum', 'Son GitHub Actions çalışmalarını ve sonuçlarını gösterir. Bir çalışmanın bitmesini beklemek için actions_bekle kullan.',
     { repo: S('sahip/repo'), dal: S('dal (isteğe bağlı)') }, ['repo']),
   fn('actions_hata', 'Başarısız bir Actions çalışmasının hata loglarını getirir.',
     { repo: S('sahip/repo'), calisma_id: S('çalışma id') }, ['repo', 'calisma_id']),
@@ -221,8 +223,15 @@ export async function calistir(ad, arg, ctx) {
       return JSON.stringify(await gh.repolar());
     case 'repo_haritasi':
       return await repoHaritasi(gh, arg.repo, arg.dal, { durum: ctx.durum });
-    case 'dosya_agaci':
-      return kisalt((await gh.agac(arg.repo, arg.dal)).join('\n'));
+    case 'dosya_agaci': {
+      const onek = (arg.klasor || '').replace(/^\/+/, '');
+      const liste = (await gh.agac(arg.repo, arg.dal)).filter((d) => !onek || d.startsWith(onek));
+      if (!liste.length) return onek ? `"${onek}" altında dosya yok. Üst klasörü listele.` : 'Repo boş.';
+      const metin = liste.join('\n');
+      return metin.length > MAKS
+        ? kisalt(metin) + `\n(Toplam ${liste.length} dosya; liste kesildi. klasor ile daralt.)`
+        : metin;
+    }
     case 'dosya_oku': {
       const r = await gh.dosyaOku(arg.repo, arg.yol, arg.dal);
       if (r.klasor) return 'Bu bir klasör:\n' + r.icerik.join('\n');
@@ -329,6 +338,25 @@ export async function calistir(ad, arg, ctx) {
     }
     case 'pr_ac':
       return 'PR: ' + (await gh.prAc(arg.repo, arg.baslik, arg.aciklama, arg.dal, arg.hedef));
+    case 'actions_bekle': {
+      const bitis = Date.now() + ACTIONS_BEKLE_SURE;
+      let w;
+      while (Date.now() < bitis) {
+        if (ctx.durdurulduMu()) return 'Kullanıcı durdurdu.';
+        w = await gh.calisma(arg.repo, arg.calisma_id);
+        if (w.durum === 'completed') break;
+        ctx.durum(`${arg.repo.split('/')[1]}: "${w.ad}" sürüyor (${Math.round((Date.now() - Date.parse(w.created_at)) / 60000)} dk)…`);
+        await uyu(20_000);
+      }
+      if (w?.durum !== 'completed') return `Zaman aşımı: ${w?.url} hâlâ sürüyor. Tekrar actions_bekle çağırabilirsin.`;
+      let ek = '';
+      if (w.sonuc !== 'success') {
+        ek = '\nBaşarısız işler için actions_hata kullan.';
+      } else if (SERBEST_REPO.test(arg.repo)) {
+        ek = await siparisCiktilari(gh, arg.repo, w.created_at);
+      }
+      return `${w.sonuc === 'success' ? '✅' : '❌'} "${w.ad}" bitti: ${w.sonuc}. ${w.url}${ek}`;
+    }
     case 'actions_durum':
       return JSON.stringify(await gh.calismalar(arg.repo, arg.dal));
     case 'actions_hata':
@@ -345,7 +373,12 @@ export async function calistir(ad, arg, ctx) {
           '\nDoğru değerleri girdiler ile ver. Varsayılanlar bu iş için gerçekten doğruysa varsayilan_tamam: true ile tekrar çağır.';
       }
       const temiz = Object.fromEntries(Object.entries(girdiler).map(([k, v]) => [k, String(v)]));
-      return await gh.calismaBaslat(arg.repo, arg.workflow, arg.dal, Object.keys(temiz).length ? temiz : undefined);
+      const bas = Date.now();
+      await gh.calismaBaslat(arg.repo, arg.workflow, arg.dal, Object.keys(temiz).length ? temiz : undefined);
+      const w = await gh.yeniCalisma(arg.repo, arg.workflow, bas).catch(() => null);
+      return w
+        ? `Başlatıldı: ${w.url} (calisma_id: ${w.id}). Bitmesini actions_bekle ile bekle; aynı iş akışını tekrar BAŞLATMA.`
+        : 'Başlatıldı ama çalışma henüz listede görünmüyor. Tekrar başlatma; biraz sonra actions_durum ile bak.';
     }
     case 'danis': {
       const plan = ctx.gorev.plan?.length ? '\nPlan:\n' + ctx.gorev.plan.map((m) => `[${m.durum}] ${m.metin}`).join('\n') : '';
@@ -428,3 +461,18 @@ async function workflowGirdileri(gh, repo, workflow, dal) {
 const girinti = (l) => l.match(/^\s*/)[0].length;
 
 export const okumaAnahtari = (arg) => `${arg.repo}#${arg.dal || ''}#${arg.yol}#${arg.baslangic || ''}-${arg.bitis || ''}`;
+
+const ACTIONS_BEKLE_SURE = 40 * 60_000;
+
+/** Sprite Atölye siparişinin çıktı klasörleri (deneme-sonuclari dalında, çalışma başladıktan sonra oluşanlar). */
+async function siparisCiktilari(gh, repo, baslangic) {
+  try {
+    const sinir = new Date(Date.parse(baslangic) - 60_000).toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+    const yollar = (await gh.agac(repo, 'deneme-sonuclari')).filter((d) => /^siparis\/[^/]+\/\d{8}-\d{6}\/[^/]+\/gorsel\.png$/.test(d));
+    const yeni = yollar.filter((d) => d.split('/')[2] >= sinir);
+    if (!yeni.length) return '\nÇıktı klasörü bulunamadı; dosya_agaci ile dal: deneme-sonuclari, klasor: "siparis/<oyun>/" listele.';
+    return `\nÇıktılar (dal: deneme-sonuclari) — gorsel_goster ile göster:\n${yeni.map((d) => '- ' + d).join('\n')}`;
+  } catch {
+    return '';
+  }
+}
