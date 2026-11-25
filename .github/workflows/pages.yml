@@ -19,16 +19,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  yayinla:
+  # Hazırla ve yayınla ayrı işler: tek işte paket yüklenir yüklenmez yayınlamaya çalışınca
+  # GitHub paketi henüz göremeyip "No artifacts named github-pages" hatası verebiliyor.
+  hazirla:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.dagit.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: www
+
+  yayinla:
+    needs: hazirla
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.dagit.outputs.page_url }}
+    steps:
       - id: dagit
         uses: actions/deploy-pages@v4
