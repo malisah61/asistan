@@ -160,14 +160,34 @@ export async function gorevBaslat({ gh, depo, asistanRepo, oturum, istek }) {
   oturum.soru = null;
   await depo.sil(`oturumlar/${oturum.id}.dur`, 'eski durdurma işareti');
   await depo.oturumYaz(oturum);
+  const bas = Date.now();
+  let basladi = false;
   try {
     await gh.calismaBaslat(asistanRepo, GOREV_WORKFLOW, null, { oturum: oturum.id });
-  } catch {
-    // Tarayıcıdan workflow başlatma isteği CORS'a takılabiliyor (web sürümü).
+    // GitHub isteği kabul edip çalışmayı hiç oluşturmayabiliyor (25 Kasım'da oldu): gerçekten başladı mı bak
+    basladi = await calismaBasladiMi(gh, asistanRepo, bas);
+  } catch { /* aşağıdaki yedek yol */ }
+  if (!basladi) {
+    // Tarayıcıdan workflow başlatma isteği CORS'a takılabiliyor (web sürümü) ya da GitHub isteği düşürebiliyor.
     // Dosya yazmak her yerde çalışıyor: asistan reposuna kuyruk dosyası yazılınca gorev.yml push ile başlar.
     // Dosyada yalnızca oturum kimliği var; repo açık olsa da içerik görünmez.
+    // İki yol birden başlarsa çalıştırıcı ikincisini fark edip çıkar (bulut/calistir.mjs).
     await new Depo(gh, asistanRepo).jsonYaz(KUYRUK_DOSYASI, { oturum: oturum.id, zaman: Date.now() }, 'kuyruk: yeni görev');
   }
+}
+
+const BASLAMA_KONTROL = [4000, 6000, 8000]; // ms
+
+async function calismaBasladiMi(gh, repo, bas) {
+  for (const bekle of BASLAMA_KONTROL) {
+    await new Promise((r) => setTimeout(r, bekle));
+    try {
+      const r = await gh.istek(`/repos/${repo}/actions/workflows/${GOREV_WORKFLOW}/runs?event=workflow_dispatch&per_page=5`);
+      // Saat farkı payı: istekten biraz önce oluşturulmuş görünebilir
+      if (r.workflow_runs?.some((w) => Date.parse(w.created_at) >= bas - 30_000)) return true;
+    } catch { /* bir sonraki denemede */ }
+  }
+  return false;
 }
 
 export function yeniOturum({ baslik, repo }) {

@@ -22,6 +22,8 @@ const GOREV_SURESI = 105 * 60_000;
 // Saati kaçırılan gece görevi en fazla bu kadar saat gecikmeyle başlatılır
 const GECE_PENCERESI = 6;
 const MODEL_LISTESI_OMRU = 24 * 3600_000;
+// Oturum bu süre içinde başka bir çalışma tarafından güncellendiyse o çalışma hâlâ sürüyor sayılır
+const BASKA_CALISMA_SURESI = 5 * 60_000;
 
 const KOK = join(fileURLToPath(import.meta.url), '..', '..');
 const log = (...a) => console.log('[asistan]', ...a);
@@ -123,6 +125,12 @@ async function oturumCalistir({ gh, depo, hafiza, ayar, id, gece = false }) {
   const i = o.mesajlar.map((m) => m.rol).lastIndexOf('kullanici');
   if (i < 0) {
     log('işlenecek mesaj yok');
+    return;
+  }
+  // Aynı oturum iki yoldan (dispatch + kuyruk dosyası) başlamış olabilir: biri zaten çalışıyorsa çık
+  const kendiUrl = process.env.KOSU_URL || '';
+  if (o.durum === 'calisiyor' && o.kosu?.url && o.kosu.url !== kendiUrl && Date.now() - (o.guncelleme || 0) < BASKA_CALISMA_SURESI) {
+    log('bu oturum başka bir çalışmada sürüyor, çıkılıyor');
     return;
   }
   const istek = o.mesajlar[i].metin;

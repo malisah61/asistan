@@ -195,7 +195,7 @@ function durumGoster(metin) {
     const sessiz = Date.now() - (oturum.guncelleme || Date.now());
     t = oturum.durumMetni || (oturum.durum === 'kuyrukta' ? 'Bulutta sıraya alındı…' : 'Çalışıyor…');
     if (oturum.durum === 'kuyrukta' && sessiz > BASLAMA_UYARI) {
-      t = `Bulut görevi başlamadı. Actions'ı kontrol et: https://github.com/${ayar.asistanRepo}/actions`;
+      t = `Bulut görevi başlamadı. ■ ile durdurup mesajını tekrar gönder. Actions: https://github.com/${ayar.asistanRepo}/actions`;
     } else if (oturum.durum === 'calisiyor' && sessiz > SESSIZ_UYARI) {
       t = `${once(oturum.guncelleme)} beri ses yok, takılmış olabilir.${oturum.kosu?.url ? ' ' + oturum.kosu.url : ''}`;
     }
@@ -362,9 +362,19 @@ document.addEventListener('visibilitychange', () => {
 async function gonder() {
   if (gonderiliyor) return;
   if (oturum && CALISAN_DURUMLAR.has(oturum.durum)) {
+    // Hiç başlamamış (sırada takılmış) görevi durdurmak için bulutta onu okuyacak bir çalışma yok: burada kapat
+    const takili = oturum.durum === 'kuyrukta' && Date.now() - (oturum.guncelleme || 0) > BASLAMA_UYARI;
     durumGoster('Durduruluyor…');
     try {
-      await depo.durIste(oturum.id);
+      if (takili) {
+        oturum.durum = 'durduruldu';
+        oturum.durumMetni = '';
+        oturum.mesajlar.push({ rol: 'not', metin: 'Bulut görevi başlamadığı için durduruldu. Mesajını tekrar gönderebilirsin.', zaman: Date.now() });
+        await depo.oturumYaz(oturum);
+        sohbetiCiz();
+      } else {
+        await depo.durIste(oturum.id);
+      }
     } catch (e) {
       durumGoster('⚠ ' + e.message);
     }
