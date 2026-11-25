@@ -205,6 +205,24 @@ function planNotu(plan) {
 
 // ---------- Ana döngü ----------
 
+const ONCEKI_ADIM = 40;
+
+function oncekiOzeti(onceki) {
+  if (!onceki?.adimlar?.length && !onceki?.plan?.length) return '';
+  const satirlar = (onceki.adimlar || []).slice(-ONCEKI_ADIM).map((a) => {
+    const arg = String(a.arg || '').replace(/\s+/g, ' ').slice(0, 220);
+    const sonuc = String(a.sonuc || '').replace(/\s+/g, ' ').slice(0, 160);
+    return `- ${a.ad} ${arg} → ${sonuc}`;
+  });
+  return [
+    '(otomatik not) Bu sohbette daha önce bu işe başladın, kaldığın yerden devam et. BAŞTAN BAŞLAMA.',
+    'Açtığın dalı yeniden açma, yaptığın değişiklikleri tekrarlama. Bir dosyayı yalnızca değiştireceksen ya da içeriğini gerçekten bilmen gerekiyorsa yeniden oku.',
+    onceki.plan?.length ? `\nPlan durumu:\n${onceki.plan.map((m, i) => `${i + 1}. [${m.durum === 'bitti' ? 'x' : m.durum === 'suruyor' ? '>' : ' '}] ${m.metin}`).join('\n')}` : '',
+    satirlar.length ? `\nŞimdiye kadar yaptığın adımlar (son ${satirlar.length}):\n${satirlar.join('\n')}` : '',
+    onceki.hata ? `\nGeçen sefer şu hatayla yarıda kaldı: ${String(onceki.hata).slice(0, 300)}` : '',
+  ].filter(Boolean).join('\n');
+}
+
 const GECICI_HATA = /yanıt vermedi|fetch failed|network|ECONNRESET|HTTP 5\d\d|HTTP 429/i;
 const AG_HATA_DENEME = 3;
 const AG_BEKLEME = 30_000;
@@ -212,16 +230,29 @@ const AG_BEKLEME = 30_000;
 /**
  * ui: { durum(t), arac(ad, arg, sonuc), onayla(ad, ozet), durdurulduMu(), plan(maddeler) }
  */
-export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek, ui }) {
+/**
+ * onceki: { plan, adimlar: [{ ad, arg, sonuc }], hata } — aynı sohbetteki önceki çalışmalar.
+ * "devam et" dendiğinde ajan baştan başlamasın diye ne yapıldığı özetlenip bağlama eklenir.
+ */
+export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek, ui, onceki }) {
   const gorev = { istek, plan: [], sonSha: {}, kontrolHata: 0, gunluk: [], basla: Date.now(), aracSure: 0 };
   olcum.sifirla();
   const ctx = { gh, hafiza, ayar, aktifRepo, gorev, onayla: ui.onayla, durum: ui.durum, durdurulduMu: ui.durdurulduMu, plan: ui.plan };
 
   const sistem = await sistemMesaji(hafiza, aktifRepo, gh, istek);
-  const mesajlar = [{ role: 'system', content: sistem }, ...gecmis.slice(-12), { role: 'user', content: istek }];
+  const mesajlar = [{ role: 'system', content: sistem }, ...gecmis.slice(-12)];
+  const devam = oncekiOzeti(onceki);
+  if (devam) mesajlar.push({ role: 'user', content: devam });
+  mesajlar.push({ role: 'user', content: istek });
+  // Yarım kalan plan varsa ondan devam et; yeni plan çıkarma
+  const yarimPlan = onceki?.plan?.length && onceki.plan.some((m) => m.durum !== 'bitti');
+  if (yarimPlan) {
+    gorev.plan = onceki.plan.map((m) => ({ ...m }));
+    ui.plan(gorev.plan);
+  }
 
   // 1) Planlayıcı
-  if (ayar.planla !== false && istek.length >= PLAN_ESIGI) {
+  if (ayar.planla !== false && istek.length >= PLAN_ESIGI && !yarimPlan) {
     try {
       const p = await planCikar({ ayar, gh, aktifRepo, istek, gecmis, ui });
       if (p) {

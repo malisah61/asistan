@@ -117,6 +117,19 @@ async function oturumCalistir({ gh, depo, hafiza, ayar, id, gece = false }) {
   const gecmis = o.mesajlar.slice(0, i)
     .filter((m) => m.rol === 'kullanici' || m.rol === 'asistan')
     .map((m) => ({ role: m.rol === 'kullanici' ? 'user' : 'assistant', content: m.metin }));
+  // Son tamamlanmış cevaptan sonraki araç adımları = yarım kalan iş; "devam et" bunları bilsin
+  // Durdurulan ya da adım sınırına takılan iş bitmiş sayılmaz
+  const bitmisCevap = (m) => m.rol === 'asistan' && !/^\(Durduruldu\)|^Adım sınırına/.test(m.metin || '');
+  let sonCevap = -1;
+  o.mesajlar.slice(0, i).forEach((m, k) => { if (bitmisCevap(m)) sonCevap = k; });
+  const yarim = o.mesajlar.slice(sonCevap + 1, i);
+  // Yeni ve uzun bir istekse eski işi devam ettirme; "devam et", "tekrar dene" gibi kısa isteklerde ettir
+  const devamMi = istek.length < 60 || /devam|kald[ıi][ğg]|sürdür|tekrar dene/i.test(istek);
+  const onceki = devamMi ? {
+    plan: o.plan || [],
+    adimlar: yarim.filter((m) => m.rol === 'arac'),
+    hata: [...yarim].reverse().find((m) => m.rol === 'hata')?.metin || '',
+  } : null;
 
   // ---- kayıt: sık değişiklikleri birleştirip sırayla yaz ----
   let zamanlayici = null;
@@ -182,7 +195,7 @@ async function oturumCalistir({ gh, depo, hafiza, ayar, id, gece = false }) {
 
   try {
     const sonuc = await gorevCalistir({
-      ayar: gorevAyari, gh, hafiza, aktifRepo: o.repo, gecmis, istek,
+      ayar: gorevAyari, gh, hafiza, aktifRepo: o.repo, gecmis, istek, onceki,
       ui: {
         durum: (t) => { if (t) { o.durumMetni = t; sonraKaydet(); } },
         onayla: (ad, ozet) => sor(`İzin: ${ad}`, ozet, 'İzin ver'),
