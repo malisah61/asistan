@@ -29,7 +29,10 @@ const KOTA_BEKLEME = 60_000;
 const ILK_YANIT_SURESI = 180_000; // büyük bağlamda ilk kelime gelene kadar
 const SESSIZLIK_SURESI = 90_000; // iki parça arasında
 const TOPLAM_SURE = 15 * 60_000;
+const BOS_AKIS_SURESI = 6 * 60_000; // bağlantı açık ama tek kelime yok
 const ILERLEME_ARALIGI = 3000;
+
+const sayi = (n) => (n < 1000 ? String(n) : (n / 1000).toFixed(1) + ' bin');
 
 function zamanAsimi(mesaj) {
   const e = new Error(mesaj);
@@ -70,13 +73,17 @@ async function akisliIstek(url, hdr, govde, ilerleme) {
     const coz = new TextDecoder();
     const msg = { role: 'assistant', content: '', tool_calls: [] };
     let tampon = '';
-    let uzunluk = 0;
+    let yazi = 0;
+    let dusunce = 0;
     let sonIlerleme = 0;
+    const bas = Date.now();
     for (;;) {
       kur(SESSIZLIK_SURESI, `${SESSIZLIK_SURESI / 1000} sn boyunca sustu`);
       const { done, value } = await okuyucu.read();
       if (neden) throw neden;
       if (done) break;
+      // Sunucu yalnızca bağlantıyı canlı tutup hiç yazmıyorsa sessizlik süresi hiç dolmaz; ayrıca sınırla
+      if (!yazi && !dusunce && Date.now() - bas > BOS_AKIS_SURESI) throw zamanAsimi(`${BOS_AKIS_SURESI / 60_000} dk boyunca bağlantı açık ama hiç yazmadı`);
       tampon += coz.decode(value, { stream: true });
       const satirlar = tampon.split('\n');
       tampon = satirlar.pop();
@@ -88,21 +95,25 @@ async function akisliIstek(url, hdr, govde, ilerleme) {
         let j;
         try { j = JSON.parse(veri); } catch { continue; }
         if (j.error) return { ok: false, status: 500, metin: JSON.stringify(j.error) };
-        const d = j.choices?.[0]?.delta;
+        const d = j.choices?.[0]?.delta || j.choices?.[0]?.message;
         if (!d) continue;
         if (d.content) msg.content += d.content;
+        // Düşünen modeller cevaptan önce akıl yürütür; alan adı sunucuya göre değişiyor
+        for (const k of ['reasoning_content', 'reasoning', 'thinking']) {
+          if (typeof d[k] === 'string') dusunce += d[k].length;
+        }
         for (const tc of d.tool_calls || []) {
           const t = (msg.tool_calls[tc.index ?? 0] ||= { id: '', type: 'function', function: { name: '', arguments: '' } });
           if (tc.id) t.id = tc.id;
           if (tc.function?.name) t.function.name += tc.function.name;
           if (tc.function?.arguments) t.function.arguments += tc.function.arguments;
         }
-        uzunluk += (d.content?.length || 0) + (d.reasoning_content?.length || 0) +
+        yazi += (d.content?.length || 0) +
           (d.tool_calls || []).reduce((n, tc) => n + (tc.function?.arguments?.length || 0), 0);
       }
       if (Date.now() - sonIlerleme > ILERLEME_ARALIGI) {
         sonIlerleme = Date.now();
-        ilerleme(uzunluk);
+        ilerleme({ yazi, dusunce, sure: Math.round((Date.now() - bas) / 1000) });
       }
     }
     msg.tool_calls = msg.tool_calls.filter((t) => t && t.function.name);
@@ -282,8 +293,10 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
           govde.tools = tools;
           govde.tool_choice = 'auto';
         }
-        const r = await akisliIstek(`${p.url}/chat/completions`, headers(id, ayar.anahtar[id]), govde,
-          (n) => durum(`${p.ad} (${model}) yazıyor… ${n < 1000 ? n : (n / 1000).toFixed(1) + ' bin'} karakter`));
+        const r = await akisliIstek(`${p.url}/chat/completions`, headers(id, ayar.anahtar[id]), govde, ({ yazi, dusunce, sure }) => durum(
+          yazi ? `${p.ad} (${model}) yazıyor… ${sayi(yazi)} karakter`
+            : dusunce ? `${p.ad} (${model}) düşünüyor… ${sayi(dusunce)} karakter akıl yürütme`
+              : `${p.ad} (${model}) isteği işliyor, bağlantı açık… ${sure} sn`));
         const metin = r.metin;
         if (!r.ok) {
           if (!sartDenendi && sartlarKabulEdilmediMi(metin)) {
