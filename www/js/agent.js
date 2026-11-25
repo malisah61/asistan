@@ -128,6 +128,7 @@ async function sistemMesaji(hafiza, aktifRepo, gh, istek) {
     'İstek belirsizse ya da birden fazla anlama gelebiliyorsa, pahalı bir işe girişmeden önce kullanıcıya TEK kısa soru sor ve dur.',
     'Başka bir sistemi (workflow, API) çağırmadan önce tanımını oku; girdilerini açıkça ver, varsayılana güvenme.',
     'Para harcayabilen (GPU üretimi, yayın) ya da aktif repo dışındaki işlemler için kullanıcı onayı gerekir; bunu atlatmaya çalışma.',
+    'İSTİSNA: Sprite Atölye (sprite-atolye) siparişleri onaysızdır, bütçesi kendi sınırlı. Oyuna görsel gerekiyorsa siparis.json\'u yaz ve siparis.yml\'i hedef/dal girdileriyle KENDİN başlat; kullanıcıya bırakma.',
     '',
     '## İşi bitirmek',
     'Oyun ya da uygulama işinde iş, kullanıcının deneyebileceği bir şey verince biter:',

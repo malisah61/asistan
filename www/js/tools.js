@@ -88,6 +88,9 @@ const GORSEL_UZANTI = /\.(png|jpe?g|webp|gif)$/i;
 export const OKUMA = new Set(['repolari_listele', 'repo_haritasi', 'dosya_agaci', 'dosya_oku', 'kod_ara', 'actions_durum', 'actions_hata']);
 // Para harcayabilen ya da yayın yapan iş akışları: otomatik izin açıkken bile sorulur, gece hiç başlatılmaz
 const PAHALI_WORKFLOW = /siparis|sipari[sş]|uret|üret|modal|gpu|deploy|yayin|yayın|release|publish|anim|video|uc_boyut/i;
+// Bütçesi kendi sınırlı olan repolar: iş akışları onaysız başlatılabilir (gece de).
+// Sprite Atölye'nin Modal harcama sınırı var ($30, kart limiti $0); aşamaz. Girdi kontrolü yine yapılır.
+const SERBEST_REPO = /\/sprite-atolye$/i;
 const YAZMA = new Set(['dosya_yaz', 'dosya_duzenle', 'dosya_sil', 'pr_ac', 'actions_baslat', 'dal_olustur', 'kontrol_kur', 'apk_kur', 'pr_birlestir', 'claudea_devret']);
 // Tek araç sonucu üst sınırı; büyük dosyalar baslangic/bitis ile parça parça okunur (bağlam küçük kalsın)
 const MAKS = 10000;
@@ -202,9 +205,10 @@ export async function calistir(ad, arg, ctx) {
   }
 
   // Aktif repo dışında ya da adı para harcayan bir iş akışı: kullanıcının açık onayı şart
-  const pahali = (ad === 'actions_baslat' && ((ctx.aktifRepo && arg.repo !== ctx.aktifRepo) || PAHALI_WORKFLOW.test(arg.workflow || ''))) ||
+  const serbest = ad === 'actions_baslat' && SERBEST_REPO.test(arg.repo || '');
+  const pahali = (ad === 'actions_baslat' && !serbest && ((ctx.aktifRepo && arg.repo !== ctx.aktifRepo) || PAHALI_WORKFLOW.test(arg.workflow || ''))) ||
     ad === 'pr_birlestir'; // ana dala yazar, geri almak zahmetli
-  if ((YAZMA.has(ad) && ayar.onayIste) || pahali) {
+  if ((YAZMA.has(ad) && ayar.onayIste && !serbest) || pahali) {
     const ozet = yeniIcerik !== undefined
       ? `${arg.repo}/${arg.yol} (${arg.dal})\n${arg.mesaj}\n\n${diffUret(eski, yeniIcerik)}`
       : (pahali ? '⚠ Bu iş akışı para harcayabilir ya da başka bir repoyu etkiler.\n\n' : '') + JSON.stringify(arg, null, 2);

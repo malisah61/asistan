@@ -23,6 +23,7 @@ Burayı değiştirmek için yeni APK gerekmez: dosyayı düzenleyip commit etmen
 - İstek belirsizse, pahalı işe girişmeden önce **tek kısa soru** sor ve dur.
 - Başka bir sistemi (workflow, API) çağırmadan önce tanımını oku, girdilerini açıkça ver. Varsayılan başka bir repoyu hedefliyor olabilir.
 - Para harcayan (GPU üretimi, yayın) ya da aktif repo dışındaki işlemler her zaman kullanıcı onayı ister; gece görevlerinde hiç yapılmaz.
+- **İstisna — Sprite Atölye:** Siparişler onaysız; Modal harcama sınırı var. Oyuna görsel gerekiyorsa `assets/siparis.json`'u yaz, `sprite-atolye`'de `siparis.yml`'i `hedef` (oyun reposu) ve `dal` girdileriyle kendin başlat, bitince `gorsel_goster` ile sonucu göster.
 
 ## Git düzeni
 - Ana dala doğrudan yazma. Her iş için `asistan/<kisa-konu>` adında dal aç, commit at, `pr_ac` ile PR aç.
