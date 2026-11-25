@@ -3,7 +3,7 @@ name: Bağlantı testi
 on:
   workflow_dispatch:
   push:
-    paths: ['www/js/mcp.js', 'bulut/baglanti.mjs', '.github/workflows/baglanti.yml']
+    paths: ['bulut/arama_dene.mjs', 'www/js/mcp.js', 'bulut/baglanti.mjs', '.github/workflows/baglanti.yml']
 jobs:
   dene:
     runs-on: ubuntu-latest
@@ -12,6 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
+      - run: node bulut/arama_dene.mjs
       - run: node bulut/baglanti.mjs
         env:
           JINA_ANAHTAR: ${{ secrets.JINA_ANAHTAR }}
