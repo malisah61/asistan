@@ -39,6 +39,8 @@ const listeOnbellek = {}; // id -> { zaman, modeller }
 // Ücret/bakiye hatası kısa sürede düzelmez; sağlayıcıyı uzun süre atla (ayar.dinlen'de kalıcı tutulur)
 const UCRETLI_BEKLEME = 6 * 60 * 60_000;
 const KOTA_BEKLEME = 60_000;
+// Sunucu yanıtsız kalırsa sonsuza kadar beklememek için; uzun dosya yazımına yetecek kadar geniş
+const ISTEK_ZAMAN_ASIMI = 180_000;
 const VARSAYILAN_SART_SURUMU = 1;
 
 // Kullanım şartları onayını arayüz sorar; llm.js'in ekrana erişimi yok
@@ -237,6 +239,7 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
           method: 'POST',
           headers: headers(id, ayar.anahtar[id]),
           body: JSON.stringify(govde),
+          signal: AbortSignal.timeout(ISTEK_ZAMAN_ASIMI),
         });
         const metin = await r.text();
         if (!r.ok) {
@@ -286,7 +289,14 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
         if (!aday.rol && !yedekte && !ayar.model?.[id]) modelKaydet(ayar, id, null, model);
         return { message, saglayici: p.ad, model };
       } catch (e) {
-        hatalar.push(`${p.ad}: ${e.message}`);
+        if (e.name === 'TimeoutError') {
+          // Bir sonraki adım önce diğer sağlayıcılarla denensin
+          bekleme[id] = Date.now() + KOTA_BEKLEME;
+          durum(`${p.ad} ${ISTEK_ZAMAN_ASIMI / 1000} sn yanıt vermedi, sıradakine geçiliyor…`);
+          hatalar.push(`${p.ad} (${model}): ${ISTEK_ZAMAN_ASIMI / 1000} sn içinde yanıt vermedi`);
+        } else {
+          hatalar.push(`${p.ad}: ${e.message}`);
+        }
         break;
       }
     }
