@@ -70,6 +70,11 @@ jobs:
         run: |
           if [ "$DAL" = "main" ]; then ETIKET=son; ON=""; else ETIKET="apk-$(echo "$DAL" | sed -E 's/[^A-Za-z0-9._-]+/-/g' | cut -c1-60)"; ON="--prerelease"; fi
           gh release delete "$ETIKET" --yes --cleanup-tag || true
-          gh release create "$ETIKET" "${{ github.event.repository.name }}.apk" --target "$GITHUB_SHA" $ON \
-            --title "${{ github.event.repository.name }} ($DAL)" \
-            --notes "Commit: ${GITHUB_SHA::7}. Telefondan bu sayfadaki .apk dosyasını indirip kur."
+          # GitHub release API'si ara sıra 5xx veriyor: birkaç kez dene; olmazsa APK yine bu çalışmanın Artifacts bölümünde
+          for i in 1 2 3 4; do
+            gh release create "$ETIKET" "${{ github.event.repository.name }}.apk" --target "$GITHUB_SHA" $ON \
+              --title "${{ github.event.repository.name }} ($DAL)" \
+              --notes "Commit: ${GITHUB_SHA::7}. Telefondan bu sayfadaki .apk dosyasını indirip kur." && exit 0
+            sleep $((i * 15))
+          done
+          echo "::warning::Release oluşturulamadı; APK bu çalışmanın Artifacts bölümünde."
