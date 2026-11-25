@@ -58,6 +58,8 @@ let oturum = null; // açık oturum
 let yoklama = null;
 let cevaplanan = ''; // son cevaplanan soru id'si
 let gonderiliyor = false;
+// Bu sohbette yazma işlemleri sorulmadan onaylansın mı? (oturum açılınca buluttan okunur)
+let otomatikIzin = false;
 
 // ---------- Biçimlendirme ----------
 function kacis(s) {
@@ -122,8 +124,8 @@ function sohbetiCiz() {
   }
   if (altta || !oturum) kutu.scrollTop = kutu.scrollHeight;
 
-  $('oturumBaslik').hidden = !oturum;
-  if (oturum) $('oturumBaslik').textContent = oturum.baslik;
+  $('oturumBaslik').textContent = oturum ? oturum.baslik : 'Yeni sohbet';
+  izinCiz();
   const calisiyor = Boolean(oturum && CALISAN_DURUMLAR.has(oturum.durum));
   planGoster(calisiyor || oturum?.plan?.some((m) => m.durum !== 'bitti') ? oturum.plan : []);
   durumGoster();
@@ -183,6 +185,8 @@ function soruGoster() {
   $('onayBaslik').textContent = s.baslik;
   $('onayMetin').innerHTML = md(s.metin);
   $('onayEvet').textContent = s.evet || 'İzin ver';
+  // Kullanım şartları gibi sorular toptan onaylanmaz
+  $('onayHep').hidden = s.tur === 'sart';
   panel.hidden = false;
   const id = oturum.id;
   const bitir = async (v) => {
@@ -199,6 +203,44 @@ function soruGoster() {
   };
   $('onayEvet').onclick = () => bitir(true);
   $('onayHayir').onclick = () => bitir(false);
+  $('onayHep').onclick = async () => {
+    await izinAyarla(true);
+    bitir(true);
+  };
+}
+
+// ---------- Otomatik izin ----------
+function izinCiz() {
+  const b = $('izinBtn');
+  // Ayarlarda onay kapalıysa zaten hiçbir şey sorulmuyor
+  b.hidden = !ayar.onayIste;
+  b.textContent = otomatikIzin ? '🔓 Otomatik izin' : '🔒 İzin sorulur';
+  b.classList.toggle('acik', otomatikIzin);
+}
+
+async function izinAyarla(deger) {
+  otomatikIzin = deger;
+  izinCiz();
+  if (!oturum || !depo) return; // yeni sohbet: ilk mesajla birlikte kaydedilir
+  oturum.otomatikIzin = deger;
+  yaz('oturum:' + oturum.id, oturum);
+  try {
+    await depo.izinYaz(oturum.id, deger);
+  } catch (e) {
+    durumGoster('⚠ İzin ayarı kaydedilemedi: ' + e.message);
+  }
+}
+
+$('izinBtn').onclick = () => izinAyarla(!otomatikIzin);
+
+async function izinOku() {
+  otomatikIzin = Boolean(oturum?.otomatikIzin);
+  izinCiz();
+  if (!oturum || !depo) return;
+  try {
+    otomatikIzin = await depo.otomatikIzin(oturum.id);
+    izinCiz();
+  } catch { /* yoksa kapalı */ }
 }
 
 // ---------- Bağlantı ----------
@@ -238,6 +280,7 @@ async function oturumAc(id) {
   delete $('planKutu').dataset.elle;
   repoSeciciAyarla();
   sohbetiCiz();
+  izinOku();
   await oturumuTazele();
 }
 
@@ -299,7 +342,11 @@ async function gonder() {
   gonderiliyor = true;
   $('gonder').disabled = true;
   try {
-    if (!oturum) oturum = yeniOturum({ baslik: istek, repo: $('repoSec').value });
+    if (!oturum) {
+      oturum = yeniOturum({ baslik: istek, repo: $('repoSec').value });
+      oturum.otomatikIzin = otomatikIzin;
+      if (otomatikIzin) await depo.izinYaz(oturum.id, true);
+    }
     yaz('sonOturum', oturum.id);
     oturum.repo = $('repoSec').value || oturum.repo;
     $('giris').value = '';
@@ -400,6 +447,7 @@ $('oturumYeni').onclick = () => {
 function yeniSohbet() {
   durdurYoklama();
   oturum = null;
+  otomatikIzin = false;
   localStorage.removeItem('sonOturum');
   delete $('planKutu').dataset.elle;
   repoSeciciAyarla();
@@ -535,6 +583,7 @@ $('ayarBtn').onclick = ayarlariAc;
 $('ayarKapat').onclick = () => { $('ayarlar').hidden = true; };
 $('ayarKaydet').onclick = async () => {
   formdanOku();
+  izinCiz();
   $('ayarlar').hidden = true;
   try {
     if (!depo || tokenFarkli()) await basla();

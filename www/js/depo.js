@@ -5,6 +5,7 @@
 // oturumlar/<id>.json         { id, baslik, repo, durum, durumMetni, mesajlar, plan, soru, kosu, ... }
 // oturumlar/<id>.cevap.json   { soruId, cevap }  — uygulamanın soruya cevabı
 // oturumlar/<id>.dur          varsa bulut görevi durur
+// oturumlar/<id>.izin.json    { otomatik } — bu sohbette yazma işlemleri sorulmadan onaylanır
 // gece/gorevler.json          [{ id, ad, repo, istek, saat, aktif, sonGun }]
 // ayarlar.json                model, roller ve davranış ayarları (anahtar yok)
 
@@ -104,7 +105,7 @@ export class Depo {
 
   async oturumSil(id) {
     await this.jsonGuncelle('oturumlar/index.json', (l) => (l || []).filter((x) => x.id !== id), 'oturum silindi', []);
-    for (const ek of ['.json', '.cevap.json', '.dur']) await this.sil(`oturumlar/${id}${ek}`, 'oturum silindi');
+    for (const ek of ['.json', '.cevap.json', '.dur', '.izin.json']) await this.sil(`oturumlar/${id}${ek}`, 'oturum silindi');
   }
 
   durIste(id) {
@@ -121,6 +122,15 @@ export class Depo {
 
   cevap(id) {
     return this.jsonOku(`oturumlar/${id}.cevap.json`);
+  }
+
+  // Görev çalışırken oturum dosyasına yalnızca bulut yazar; otomatik izin ayrı dosyada durur ki anında değiştirilebilsin
+  izinYaz(id, otomatik) {
+    return this.jsonYaz(`oturumlar/${id}.izin.json`, { otomatik: Boolean(otomatik) }, 'otomatik izin');
+  }
+
+  async otomatikIzin(id) {
+    return Boolean((await this.jsonOku(`oturumlar/${id}.izin.json`))?.otomatik);
   }
 
   // ---------- Gece görevleri ve ayarlar ----------

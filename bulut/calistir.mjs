@@ -159,10 +159,10 @@ async function oturumCalistir({ gh, depo, hafiza, ayar, id, gece = false }) {
   const durdurulduMu = () => durduruldu || Date.now() > bitis;
 
   // ---- kullanıcıya soru (onay / kullanım şartları) ----
-  async function sor(baslik, metin, evet) {
+  async function sor(baslik, metin, evet, tur = 'izin') {
     if (gece) return false; // gece kimse cevaplayamaz
     const soruId = yeniId();
-    o.soru = { id: soruId, baslik, metin: String(metin).slice(0, 20000), evet, zaman: Date.now() };
+    o.soru = { id: soruId, tur, baslik, metin: String(metin).slice(0, 20000), evet, zaman: Date.now() };
     o.durumMetni = 'Cevabını bekliyor…';
     await hemenKaydet();
     const son = Date.now() + SORU_SURESI;
@@ -185,7 +185,7 @@ async function oturumCalistir({ gh, depo, hafiza, ayar, id, gece = false }) {
   sartOnayiAyarla((b) => sor(`${b.saglayici} kullanım şartları`,
     `${b.saglayici} kullanmaya başlamadan önce kullanım şartlarını onaylamanı istiyor (sürüm ${b.surum}).\n\n` +
     (b.mesaj ? b.mesaj + '\n\n' : '') + (b.adres ? `Şartları oku: ${b.adres}\n\n` : '') +
-    'Kabul edersen bu bir kez sunucuya bildirilir ve bir daha sorulmaz.', 'Kabul ediyorum'));
+    'Kabul edersen bu bir kez sunucuya bildirilir ve bir daha sorulmaz.', 'Kabul ediyorum', 'sart'));
 
   const gorevAyari = gece ? { ...ayar, onayIste: false } : ayar;
   o.durum = 'calisiyor';
@@ -198,7 +198,11 @@ async function oturumCalistir({ gh, depo, hafiza, ayar, id, gece = false }) {
       ayar: gorevAyari, gh, hafiza, aktifRepo: o.repo, gecmis, istek, onceki,
       ui: {
         durum: (t) => { if (t) { o.durumMetni = t; sonraKaydet(); } },
-        onayla: (ad, ozet) => sor(`İzin: ${ad}`, ozet, 'İzin ver'),
+        onayla: async (ad, ozet) => {
+          // Kullanıcı bu sohbette "otomatik izin" açtıysa sormadan devam et (görev sırasında da açılabilir)
+          if (await depo.otomatikIzin(id).catch(() => false)) return true;
+          return sor(`İzin: ${ad}`, ozet, 'İzin ver');
+        },
         plan: (m) => { o.plan = m.map((x) => ({ ...x })); sonraKaydet(); },
         durdurulduMu,
         arac: (ad, arg, s, sure) => {

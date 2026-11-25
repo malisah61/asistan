@@ -21,7 +21,10 @@
     </div>
   </header>
 
-  <div id="oturumBaslik" hidden></div>
+  <div id="oturumCubuk">
+    <span id="oturumBaslik">Yeni sohbet</span>
+    <button id="izinBtn" title="Bu sohbette yazma işlemleri için izin sorulsun mu?" hidden></button>
+  </div>
 
   <details id="planKutu" hidden>
     <summary id="planOzet">Plan</summary>
@@ -134,6 +137,7 @@
       <div id="onayMetin"></div>
       <div class="panel-alt">
         <button id="onayEvet" class="ana">İzin ver</button>
+        <button id="onayHep" title="Bu sohbetteki sonraki yazma işlemleri de sorulmadan onaylanır">Hep izin ver</button>
         <button id="onayHayir">Reddet</button>
       </div>
     </div>

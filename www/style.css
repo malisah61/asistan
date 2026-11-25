@@ -169,15 +169,24 @@ footer button { background: var(--vurgu); border: none; color: #fff; font-size: 
 .iki { display: flex; gap: 6px; margin-top: 6px; }
 .iki select { flex: 0 0 38%; }
 
+#oturumCubuk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 14px;
+  border-bottom: 1px solid var(--cizgi);
+}
 #oturumBaslik {
-  padding: 6px 14px;
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   color: var(--soluk);
-  border-bottom: 1px solid var(--cizgi);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+#izinBtn { padding: 3px 9px; font-size: 12px; border-radius: 999px; white-space: nowrap; }
+#izinBtn.acik { background: #2d3b2f; border-color: var(--yesil); color: var(--yesil); }
 #durum a, #onayMetin a, .kutu a { color: #8ab4ff; word-break: break-all; }
 .bilgi-notu { align-self: center; font-size: 12px; color: var(--soluk); text-align: center; }
 
