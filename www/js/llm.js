@@ -218,11 +218,15 @@ export function enIyiModel(id, modeller, tur = 'hizli') {
   if (id === 'evren') {
     adaylar = modeller.filter((m) => !/embed|whisper|tts|rerank|guard|vision|image/i.test(m));
     const p = PROVIDERS.evren;
+    // hizli: küçük/hızlı modeller öne (mini/flash/turbo/small); guclu: büyük modeller öne (pro/max/large)
+    const hizliMi = (m) => /mini|flash|turbo|small|lite|8b|7b|3b|1b/i.test(m);
+    const gucluMu = (m) => /pro|max|large|opus|sonnet|70b|72b|235b|405b/i.test(m);
     const sira = [(m) => m === p.anaModel, (m) => m === p.yedekModel, /deepseek/, /glm/, /qwen.*coder/, /qwen/, /kimi/]
       .map((k) => (typeof k === 'function' ? k : (m) => k.test(m)));
     puan = (m) => {
       const i = sira.findIndex((f) => f(m));
-      return (i < 0 ? 0 : 100 - i * 10) + Math.min(surum(m), 9);
+      const turPuani = tur === 'hizli' ? (hizliMi(m) ? 20 : 0) : (gucluMu(m) ? 20 : 0);
+      return (i < 0 ? 0 : 100 - i * 10) + turPuani + Math.min(surum(m), 9);
     };
   }
   if (!adaylar.length) adaylar = modeller;
