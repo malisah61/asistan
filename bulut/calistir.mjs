@@ -10,7 +10,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GitHub } from '../www/js/github.js';
 import { Hafiza, gorevCalistir, ozDegerlendir } from '../www/js/agent.js';
-import { sartOnayiAyarla, modelleriGetir, OTOMATIK } from '../www/js/llm.js';
+import { sartOnayiAyarla, modelleriGetir, OTOMATIK, olcum } from '../www/js/llm.js';
 import { Depo, HAFIZA_REPO_ADI, trSimdi, yeniId, yeniOturum } from '../www/js/depo.js';
 
 const KAYDET_ARALIGI = 4000;
@@ -100,6 +100,18 @@ async function modelListesiYaz(depo, ayar) {
     const modeller = await modelleriGetir('evren', ayar.anahtar.evren);
     await depo.jsonYaz('evren_modeller.json', { zaman: Date.now(), modeller }, 'EVREN model listesi');
   } catch { /* liste şart değil */ }
+}
+
+/** Her görevin süre ve sonuç ölçümleri: neyin yavaş/hatalı olduğunu zamanla görmek için (aylık dosya). */
+async function metrikYaz(depo, m) {
+  const { gun } = trSimdi();
+  const yol = `metrikler/${gun.slice(0, 7)}.jsonl`;
+  const satir = JSON.stringify({ zaman: new Date().toISOString(), ...m });
+  try {
+    let eski = '';
+    try { eski = (await depo.gh.dosyaOku(depo.repo, yol)).icerik; } catch { /* ayın ilk kaydı */ }
+    await depo.gh.dosyaYaz(depo.repo, yol, eski + satir + '\n', 'metrik');
+  } catch { /* ölçüm kaydı görevi bozmasın */ }
 }
 
 async function oturumCalistir({ gh, depo, hafiza, ayar, id, gece = false }) {
@@ -198,10 +210,11 @@ async function oturumCalistir({ gh, depo, hafiza, ayar, id, gece = false }) {
       ayar: gorevAyari, gh, hafiza, aktifRepo: o.repo, gecmis, istek, onceki,
       ui: {
         durum: (t) => { if (t) { o.durumMetni = t; sonraKaydet(); } },
-        onayla: async (ad, ozet) => {
-          // Kullanıcı bu sohbette "otomatik izin" açtıysa sormadan devam et (görev sırasında da açılabilir)
-          if (await depo.otomatikIzin(id).catch(() => false)) return true;
-          return sor(`İzin: ${ad}`, ozet, 'İzin ver');
+        onayla: async (ad, ozet, { zorunlu = false } = {}) => {
+          // Kullanıcı bu sohbette "otomatik izin" açtıysa sormadan devam et (görev sırasında da açılabilir).
+          // Pahalı işlemler (zorunlu) her zaman sorulur; gece görevinde sor() zaten reddeder.
+          if (!zorunlu && (await depo.otomatikIzin(id).catch(() => false))) return true;
+          return sor(`İzin: ${ad}`, ozet, 'İzin ver', zorunlu ? 'pahali' : 'izin');
         },
         plan: (m) => { o.plan = m.map((x) => ({ ...x })); sonraKaydet(); },
         durdurulduMu,
@@ -213,6 +226,13 @@ async function oturumCalistir({ gh, depo, hafiza, ayar, id, gece = false }) {
     });
     o.mesajlar.push({ rol: 'asistan', metin: sonuc.cevap, alt: sonuc.saglayici ? `${sonuc.saglayici} · ${sonuc.model}` : '', zaman: Date.now() });
     if (sonuc.sureOzeti) not(sonuc.sureOzeti);
+    await metrikYaz(depo, {
+      oturum: id, repo: o.repo || '', gece, toplamSn: Math.round((Date.now() - (sonuc.gorev?.basla || Date.now())) / 1000),
+      modelIstek: olcum.istek, modelSn: Math.round(olcum.sure / 1000), adim: sonuc.gorev?.adim || 0,
+      arac: sonuc.gorev?.aracSayisi || 0, tekrarOkuma: sonuc.gorev?.tekrarOkuma || 0,
+      kontrolHata: sonuc.gorev?.kontrolHata || 0, yazdi: Boolean(sonuc.gorev?.yazdi), dogrulandi: Boolean(sonuc.gorev?.dogrulandi),
+      sonuc: durdurulduMu() ? 'durduruldu' : 'bitti',
+    });
     if (Date.now() > bitis) not('Bulut görev süresi doldu. "devam et" yazarsan kaldığı yerden sürdürür.');
     if (ayar.ozDeg && !durdurulduMu()) {
       o.durumMetni = 'Bu işten ders çıkarıyor…';
@@ -226,6 +246,7 @@ async function oturumCalistir({ gh, depo, hafiza, ayar, id, gece = false }) {
     o.mesajlar.push({ rol: 'hata', metin: '⚠ ' + e.message, zaman: Date.now() });
     o.durum = 'hata';
     log('oturum hatayla bitti');
+    await metrikYaz(depo, { oturum: id, repo: o.repo || '', gece, modelIstek: olcum.istek, modelSn: Math.round(olcum.sure / 1000), sonuc: 'hata', hata: e.message.slice(0, 200) });
   } finally {
     clearInterval(durYokla);
     o.durumMetni = '';

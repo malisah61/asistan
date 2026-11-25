@@ -18,7 +18,7 @@ export const ARACLAR = [
     { repo: S('sahip/repo'), dal: S('dal (boşsa varsayılan)') }, ['repo']),
   fn('dosya_agaci', 'Repodaki tüm dosya yollarını listeler (tanımsız, yalnızca yollar).',
     { repo: S('sahip/repo'), dal: S('dal adı (boşsa varsayılan dal)') }, ['repo']),
-  fn('dosya_oku', 'Dosyayı satır numaralarıyla okur. Büyük dosyalarda haritadaki satır numaralarına göre baslangic/bitis ver; tamamını okuma.',
+  fn('dosya_oku', 'Dosyayı satır numaralarıyla okur. Büyük dosyalarda haritadaki satır numaralarına göre baslangic/bitis ver; tamamını okuma. Birden çok dosya gerekiyorsa hepsini AYNI yanıtta ayrı çağrılarla iste (paralel okunur, her ayrı tur çok zaman alır).',
     { repo: S('sahip/repo'), yol: S('dosya yolu'), dal: S('dal (isteğe bağlı)'), baslangic: N('ilk satır (isteğe bağlı)'), bitis: N('son satır (isteğe bağlı)') },
     ['repo', 'yol']),
   fn('kod_ara', 'Repoda metin/kod arar (GitHub kod arama, varsayılan dalda çalışır).',
@@ -71,6 +71,10 @@ export const ARACLAR = [
 
 export const ARAC_ADLARI = new Set(ARACLAR.map((a) => a.function.name));
 
+// Yan etkisi olmayan araçlar: aynı yanıttaki birden çok çağrı paralel çalıştırılabilir
+export const OKUMA = new Set(['repolari_listele', 'repo_haritasi', 'dosya_agaci', 'dosya_oku', 'kod_ara', 'actions_durum', 'actions_hata']);
+// Para harcayabilen ya da yayın yapan iş akışları: otomatik izin açıkken bile sorulur, gece hiç başlatılmaz
+const PAHALI_WORKFLOW = /siparis|sipari[sş]|uret|üret|modal|gpu|deploy|yayin|yayın|release|publish|anim|video|uc_boyut/i;
 const YAZMA = new Set(['dosya_yaz', 'dosya_duzenle', 'dosya_sil', 'pr_ac', 'actions_baslat', 'dal_olustur', 'kontrol_kur', 'claudea_devret']);
 // Tek araç sonucu üst sınırı; büyük dosyalar baslangic/bitis ile parça parça okunur (bağlam küçük kalsın)
 const MAKS = 10000;
@@ -135,6 +139,7 @@ async function kontrolBekle(ctx, { repo, dal }) {
       const basarisiz = runs.filter((r) => !['success', 'skipped', 'neutral'].includes(r.sonuc));
       if (!basarisiz.length) {
         ctx.gorev.kontrolHata = 0;
+        ctx.gorev.dogrulandi = true;
         return `✅ Tüm kontroller geçti (${runs.map((r) => r.ad).join(', ')}).`;
       }
       ctx.gorev.kontrolHata = (ctx.gorev.kontrolHata || 0) + 1;
@@ -179,11 +184,13 @@ export async function calistir(ad, arg, ctx) {
     if (engel) return engel;
   }
 
-  if (YAZMA.has(ad) && ayar.onayIste) {
+  // Aktif repo dışında ya da adı para harcayan bir iş akışı: kullanıcının açık onayı şart
+  const pahali = ad === 'actions_baslat' && ((ctx.aktifRepo && arg.repo !== ctx.aktifRepo) || PAHALI_WORKFLOW.test(arg.workflow || ''));
+  if ((YAZMA.has(ad) && ayar.onayIste) || pahali) {
     const ozet = yeniIcerik !== undefined
       ? `${arg.repo}/${arg.yol} (${arg.dal})\n${arg.mesaj}\n\n${diffUret(eski, yeniIcerik)}`
-      : JSON.stringify(arg, null, 2);
-    const ok = await onayla(ad, ozet);
+      : (pahali ? '⚠ Bu iş akışı para harcayabilir ya da başka bir repoyu etkiler.\n\n' : '') + JSON.stringify(arg, null, 2);
+    const ok = await onayla(ad, ozet, { zorunlu: pahali });
     if (!ok) return 'Kullanıcı bu işlemi reddetti. Neden reddedilmiş olabileceğini düşün, gerekirse kullanıcıya sor.';
   }
 
@@ -197,6 +204,13 @@ export async function calistir(ad, arg, ctx) {
     case 'dosya_oku': {
       const r = await gh.dosyaOku(arg.repo, arg.yol, arg.dal);
       if (r.klasor) return 'Bu bir klasör:\n' + r.icerik.join('\n');
+      // Aynı dosyanın aynı bölümü değişmeden ve bağlamda hâlâ duruyorsa yeniden gönderme (bağlam şişmesin)
+      const anahtar = okumaAnahtari(arg);
+      const once = ctx.gorev.okunan?.[anahtar];
+      if (once && once.sha === r.sha && !once.sikisti) {
+        return `(Bu dosyayı/bölümü ${once.adim}. adımda okudun ve o zamandan beri değişmedi; içeriği yukarıda. Yeniden okuma, devam et.)`;
+      }
+      ctx.gorev.okunan = { ...(ctx.gorev.okunan || {}), [anahtar]: { sha: r.sha, adim: ctx.gorev.adim || 0 } };
       const satirlar = r.icerik.split('\n');
       const bas = Math.max(1, Number(arg.baslangic) || 1);
       const son = Math.min(satirlar.length, Number(arg.bitis) || satirlar.length);
@@ -224,6 +238,7 @@ export async function calistir(ad, arg, ctx) {
       }
     case 'dosya_yaz':
     case 'dosya_duzenle': {
+      ctx.gorev.yazdi = true;
       const url = await gh.dosyaYaz(arg.repo, arg.yol, yeniIcerik, arg.mesaj, arg.dal);
       ctx.gorev.sonSha[`${arg.repo}#${arg.dal}`] = gh.sonCommit;
       return `Commit: ${url}\nİlgili tüm değişiklikler bitince kontrol_bekle çağır.`;
@@ -329,3 +344,5 @@ async function workflowGirdileri(gh, repo, workflow, dal) {
 }
 
 const girinti = (l) => l.match(/^\s*/)[0].length;
+
+export const okumaAnahtari = (arg) => `${arg.repo}#${arg.dal || ''}#${arg.yol}#${arg.baslangic || ''}-${arg.bitis || ''}`;

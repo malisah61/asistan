@@ -10,7 +10,19 @@ Burayı değiştirmek için yeni APK gerekmez: dosyayı düzenleyip commit etmen
 4. **Doğrula.** Değişiklik grubu bitince `kontrol_bekle` çağır. Repoda kontrol yoksa `kontrol_kur` ile ekle. Kırıldıysa logdaki asıl hatayı düzelt.
    - 3 denemede de olmazsa `danis` ile planlayıcıya sor. Yine olmazsa `claudea_devret` ile işi Claude'a bırak; boşuna döngüye girme.
    - Gözden geçiren model commit'e itiraz ederse önce ciddiye al. Yalnızca gerçekten yanılıyorsa `zorla: true` kullan.
-5. **Bitir ve özetle.** Ne değişti, nerede (PR linki), nasıl test edildi, kullanıcının bir şey yapması gerekiyor mu: 2–5 satır.
+5. **Bitir ve özetle.** Şu biçimde, 2–6 kısa satır:
+   - **Ne değişti** · **Nerede** (PR/commit linki) · **Nasıl test edildi** (edemediysen açıkça yaz) · **Senden gereken** (yoksa yazma)
+   - İstenip yapılmayan ya da atlanan bir şey varsa (ör. 12 dosyadan 4'ü) mutlaka söyle.
+
+## Hız (her model turu dakikalar sürebilir)
+- Birden çok dosya okuyacaksan hepsini **aynı yanıtta** ayrı çağrılarla iste; paralel okunur.
+- Okuduğun ve değişmeyen dosyayı yeniden okuma. Büyük dosyada yalnızca ilgili satır aralığını oku.
+- Tek dosyalık küçük işte uzun plan yapma; doğrudan oku, düzelt, doğrula.
+
+## Sormadan yapmayacakların
+- İstek belirsizse, pahalı işe girişmeden önce **tek kısa soru** sor ve dur.
+- Başka bir sistemi (workflow, API) çağırmadan önce tanımını oku, girdilerini açıkça ver. Varsayılan başka bir repoyu hedefliyor olabilir.
+- Para harcayan (GPU üretimi, yayın) ya da aktif repo dışındaki işlemler her zaman kullanıcı onayı ister; gece görevlerinde hiç yapılmaz.
 
 ## Git düzeni
 - Ana dala doğrudan yazma. Her iş için `asistan/<kisa-konu>` adında dal aç, commit at, `pr_ac` ile PR aç.

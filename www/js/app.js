@@ -186,7 +186,7 @@ function soruGoster() {
   $('onayMetin').innerHTML = md(s.metin);
   $('onayEvet').textContent = s.evet || 'İzin ver';
   // Kullanım şartları gibi sorular toptan onaylanmaz
-  $('onayHep').hidden = s.tur === 'sart';
+  $('onayHep').hidden = s.tur === 'sart' || s.tur === 'pahali';
   panel.hidden = false;
   const id = oturum.id;
   const bitir = async (v) => {

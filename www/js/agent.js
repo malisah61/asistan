@@ -2,7 +2,7 @@
 // + bağlam sıkıştırma, tekrar algılama, metin içi araç çağrısı yedeği, akıllı ders seçimi
 
 import { sohbet, jsonOnar, metindenAracCagrilari, olcum } from './llm.js';
-import { ARACLAR, ARAC_ADLARI, calistir } from './tools.js';
+import { ARACLAR, ARAC_ADLARI, OKUMA, calistir, okumaAnahtari } from './tools.js';
 import { repoHaritasi } from './kontrol.js';
 
 const YEDEK_STIL = `Önce oku ve anla, sonra planla, sonra küçük adımlarla değiştir.
@@ -120,6 +120,19 @@ async function sistemMesaji(hafiza, aktifRepo, gh, istek) {
     '6. Kontroller geçince pr_ac ve kullanıcıya kısa özet ver.',
     'Araçları her zaman tool_calls ile çağır. Bilmediğin bir şeyi uydurma; repoda ara ya da oku.',
     '',
+    '## Hız',
+    'Her model turu çok zaman alır. Birden çok dosya okuyacaksan hepsini AYNI yanıtta, birden çok tool_call ile iste.',
+    'Okuduğun ve değişmeyen dosyayı yeniden okuma. Büyük dosyada yalnızca ilgili satır aralığını oku.',
+    '',
+    '## Sormadan yapmayacakların',
+    'İstek belirsizse ya da birden fazla anlama gelebiliyorsa, pahalı bir işe girişmeden önce kullanıcıya TEK kısa soru sor ve dur.',
+    'Başka bir sistemi (workflow, API) çağırmadan önce tanımını oku; girdilerini açıkça ver, varsayılana güvenme.',
+    'Para harcayabilen (GPU üretimi, yayın) ya da aktif repo dışındaki işlemler için kullanıcı onayı gerekir; bunu atlatmaya çalışma.',
+    '',
+    '## Son rapor biçimi (2–6 kısa satır)',
+    '**Ne değişti:** … · **Nerede:** PR/commit linki · **Nasıl test edildi:** … (test edemediğini açıkça yaz) · **Senden gereken:** … (yoksa yazma)',
+    'İstenip YAPILMAYAN ya da atlanan bir şey varsa (ör. 12 dosyadan 4\'ü) mutlaka söyle. Yapmadığını yapılmış gibi anlatma.',
+    '',
     '## Çalışma stilin (AGENTS.md)',
     stil || YEDEK_STIL,
     '',
@@ -171,7 +184,7 @@ const BAGLAM_SINIRI = 35_000;
 // Kısa istekler (ör. "devam et", tek satırlık düzeltme) için ayrı plan isteği yapılmaz
 const PLAN_ESIGI = 60;
 
-function sikistir(mesajlar, limit = BAGLAM_SINIRI) {
+function sikistir(mesajlar, gorev, limit = BAGLAM_SINIRI) {
   let toplam = mesajlar.reduce((t, m) => t + boyut(m), 0);
   if (toplam <= limit) return;
   const korunan = mesajlar.length - 6; // son 6 mesaj olduğu gibi kalsın
@@ -181,6 +194,8 @@ function sikistir(mesajlar, limit = BAGLAM_SINIRI) {
     if (m.role === 'tool' && m.content.length > 500 && !m.sikisti) {
       m.content = m.content.slice(0, 400) + `\n…(eski sonuç kısaltıldı; gerekirse yeniden oku)`;
       m.sikisti = true;
+      // İçerik artık bağlamda yok: bu dosya tekrar okunursa "zaten okudun" denmesin
+      if (m.okumaAnahtari && gorev?.okunan?.[m.okumaAnahtari]) gorev.okunan[m.okumaAnahtari].sikisti = true;
     } else if (m.role === 'assistant' && m.tool_calls) {
       for (const c of m.tool_calls) {
         const a = jsonOnar(c.function.arguments);
@@ -279,9 +294,11 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
 
   for (let adim = 0; adim < maksAdim; adim++) {
     if (ui.durdurulduMu()) return { cevap: '(Durduruldu)', gorev };
-    sikistir(mesajlar);
+    sikistir(mesajlar, gorev);
+    gorev.adim = adim + 1;
 
-    const cagriMesajlari = [...mesajlar];
+    // İç işaretler (sikisti, okumaAnahtari) API'ye gitmesin; katı sunucular tanımadığı alanı reddedebilir
+    const cagriMesajlari = mesajlar.map(({ sikisti, okumaAnahtari: _, ...m }) => m);
     const not = planNotu(gorev.plan);
     if (not && adim > 0) cagriMesajlari.push({ role: 'user', content: not });
 
@@ -329,24 +346,54 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
         mesajlar.push({ role: 'user', content: '(otomatik not) Söylediğini şimdi araç çağırarak yap. Plan bittiyse kullanıcıya son özeti yaz.' });
         continue;
       }
+      // Kod yazıp hiç doğrulamadan "bitti" demesin (bir kez hatırlat; kontrol yoksa raporda söylesin)
+      if (gorev.yazdi && !gorev.dogrulandi && !gorev.dogrulamaHatirlatildi) {
+        gorev.dogrulamaHatirlatildi = true;
+        mesajlar.push({
+          role: 'user',
+          content: '(otomatik not) Dosya değiştirdin ama kontrol_bekle ile doğrulamadın. Önce kontrol_bekle çağır (repoda kontrol yoksa kontrol_kur). ' +
+            'Doğrulama mümkün değilse son raporda bunu açıkça yaz.',
+        });
+        continue;
+      }
       return { cevap: metin || '(boş yanıt)', gorev, saglayici, model, sureOzeti: sureOzeti(gorev) };
     }
     bosYanit = 0;
 
+    // Yalnızca okuma yapan çağrılar aynı anda çalıştırılır; yazma içeren yanıtlar sırayla
+    const paralel = cagrilar.length > 1 && cagrilar.every((c) => OKUMA.has(c.function?.name));
+    const calistirBir = async (c) => {
+      const arg = jsonOnar(c.function?.arguments);
+      if (arg === null) return { arg, sonuc: 'HATA: argümanlar geçerli JSON değil. Daha kısa parçalarla ve geçerli JSON ile tekrar dene.', sure: 0 };
+      const bas = Date.now();
+      try {
+        return { arg, sonuc: String(await calistir(c.function?.name, arg, ctx)), sure: Date.now() - bas };
+      } catch (e) {
+        return { arg, sonuc: `HATA: ${e.message}`, sure: Date.now() - bas };
+      }
+    };
+    let hazir = null;
+    if (paralel) {
+      ui.durum(`${cagrilar.length} okuma aynı anda yapılıyor…`);
+      const bas = Date.now();
+      hazir = await Promise.all(cagrilar.map(calistirBir));
+      gorev.aracSure += Date.now() - bas;
+    }
+
     for (const [ci, c] of cagrilar.entries()) {
       const ad = c.function?.name;
-      const aracBas = Date.now();
-      const arg = jsonOnar(c.function?.arguments);
+      let arg;
       let sonuc;
-      if (arg === null) {
-        sonuc = 'HATA: argümanlar geçerli JSON değil. Daha kısa parçalarla ve geçerli JSON ile tekrar dene.';
+      let sure;
+      if (hazir) {
+        ({ arg, sonuc, sure } = hazir[ci]);
       } else {
-        try {
-          ui.durum(`${ad} çalışıyor…`);
-          sonuc = String(await calistir(ad, arg, ctx));
-        } catch (e) {
-          sonuc = `HATA: ${e.message}`;
-        }
+        ui.durum(`${ad} çalışıyor…`);
+        ({ arg, sonuc, sure } = await calistirBir(c));
+        gorev.aracSure += sure;
+      }
+      gorev.aracSayisi = (gorev.aracSayisi || 0) + 1;
+      if (arg !== null) {
         const anahtar = ad + JSON.stringify(arg);
         if (/^(HATA|COMMIT YAPILMADI)/.test(sonuc)) {
           const n = (tekrar.get(anahtar) || 0) + 1;
@@ -354,12 +401,14 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
           if (n >= 2) sonuc += '\n(otomatik not) Bu çağrıyı aynen tekrarlıyorsun ve aynı hatayı alıyorsun. Farklı bir yol dene ya da danis kullan.';
         }
       }
-      const aracSn = Math.round((Date.now() - aracBas) / 1000);
-      gorev.aracSure += Date.now() - aracBas;
       // Model süresi adımın ilk aracına yazılır (aynı yanıtta birden fazla araç olabilir)
-      ui.arac(ad, arg, sonuc, { model: ci === 0 ? modelSn : null, arac: aracSn });
+      ui.arac(ad, arg, sonuc, { model: ci === 0 ? modelSn : null, arac: Math.round(sure / 1000) });
+      if (/^\(Bu dosyayı\/bölümü/.test(sonuc)) gorev.tekrarOkuma = (gorev.tekrarOkuma || 0) + 1;
       gorev.gunluk.push(`${ad}(${JSON.stringify(arg).slice(0, 160)}) → ${sonuc.slice(0, 200).replace(/\n/g, ' ')}`);
-      mesajlar.push({ role: 'tool', tool_call_id: c.id, name: ad, content: sonuc });
+      mesajlar.push({
+        role: 'tool', tool_call_id: c.id, name: ad, content: sonuc,
+        ...(ad === 'dosya_oku' && arg ? { okumaAnahtari: okumaAnahtari(arg) } : {}),
+      });
     }
 
     if (gorev.devredildi) {
