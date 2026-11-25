@@ -1,6 +1,8 @@
 // GitHub REST API sarmalayıcısı (token ile)
 
 const API = 'https://api.github.com';
+// Geçici hatada bekleme süreleri (ms): üç tekrar, toplam ~8 sn
+const GECICI_DENEME = [1000, 2500, 4500];
 
 export function b64Encode(str) {
   const bytes = new TextEncoder().encode(str);
@@ -23,7 +25,22 @@ export class GitHub {
     this.token = token;
   }
 
-  async istek(yol, { method = 'GET', body, ham = false } = {}) {
+  async istek(yol, secenek = {}) {
+    // GitHub zaman zaman boş 5xx ya da bağlantı hatası veriyor; tekrarlanması güvenli isteklerde biraz bekleyip yeniden dene.
+    // POST (ör. workflow başlatma, PR açma) tekrarlanmaz: ilki aslında başarılıysa iş iki kez yapılır.
+    const tekrarlanabilir = (secenek.method || 'GET') !== 'POST';
+    for (let deneme = 0; ; deneme++) {
+      try {
+        return await this.tekIstek(yol, secenek);
+      } catch (e) {
+        const gecici = e.status >= 500 || (e instanceof TypeError && !e.status);
+        if (!tekrarlanabilir || !gecici || deneme >= GECICI_DENEME.length) throw e;
+        await new Promise((r) => setTimeout(r, GECICI_DENEME[deneme]));
+      }
+    }
+  }
+
+  async tekIstek(yol, { method = 'GET', body, ham = false } = {}) {
     if (!this.token) throw new Error('Ayarlardan GitHub token gir.');
     const r = await fetch(yol.startsWith('http') ? yol : API + yol, {
       method,
@@ -39,7 +56,7 @@ export class GitHub {
     });
     const metin = await r.text();
     if (!r.ok) {
-      const e = new Error(`GitHub ${r.status}: ${metin.slice(0, 300)}`);
+      const e = new Error(`GitHub ${r.status}: ${metin.slice(0, 300) || (r.status >= 500 ? 'GitHub geçici bir sunucu hatası verdi, birazdan tekrar dene' : '')}`);
       e.status = r.status;
       throw e;
     }
