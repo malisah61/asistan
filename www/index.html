@@ -100,6 +100,17 @@
       <datalist id="modelListe"></datalist>
       <button id="modelGetir">Modelleri getir</button>
 
+      <h3>Bağlayıcılar <small>(araştırma ve belge kaynakları)</small></h3>
+      <p class="not">Asistan bunları gerektiğinde kendisi kullanır. İnternet araması (web_ara/web_oku) ve Godot sınıf referansı her zaman açık.</p>
+      <div id="bagListe"></div>
+      <details>
+        <summary>Başka bir MCP bağlayıcısı ekle</summary>
+        <label>Ad <input id="bagAd" placeholder="ornek" /></label>
+        <label>MCP adresi (Streamable HTTP) <input id="bagUrl" placeholder="https://…/mcp" /></label>
+        <button id="bagEkle">Ekle</button>
+        <p class="not">Anahtar isteyen bağlayıcı için anahtarı buraya yazma: asistan reposunda <code>MCP_ANAHTARLARI</code> secret'ına <code>{"ad":"anahtar"}</code> biçiminde ekle.</p>
+      </details>
+
       <h3>Davranış</h3>
       <label class="satir"><input id="planla" type="checkbox" /> Görevden önce plan çıkar</label>
       <label class="satir"><input id="gozdenGecir" type="checkbox" /> Commit öncesi gözden geçir</label>

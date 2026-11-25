@@ -45,6 +45,7 @@ test('görev başlar, şart sorusu cevaplanır, biter', async () => {
   assert.equal(son.durum, 'bitti');
   assert.deepEqual(son.mesajlar.map((m) => m.rol).slice(0, 3), ['kullanici', 'arac', 'asistan']);
   const durum = JSON.parse(fs.readFileSync(DURUM));
+  assert.ok(durum.araclar.includes('mcp_context7_belge-ara') && durum.araclar.includes('mcp_deepwiki_belge-ara'), 'bağlayıcı araçları modele gitmeli');
   assert.ok(Object.keys(durum.repos['malisah61/asistan-hafiza']).some((k) => k.startsWith('metrikler/')), 'metrik yazılmalı');
   // Açık loga içerik sızmamalı
   assert.ok(!cikti.includes('oyunu incele'), 'log sohbet içeriği taşımamalı');

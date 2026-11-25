@@ -19,6 +19,14 @@ export const ARACLAR = [
     { repo: S('sahip/repo'), dal: S('dal (boşsa varsayılan)') }, ['repo']),
   fn('dosya_agaci', 'Repodaki dosya yollarını listeler. Büyük repolarda klasor ile daralt (ör. "siparis/kutuoyunu/"). Klasör ya da dosya adını TAHMİN ETME; önce listele.',
     { repo: S('sahip/repo'), dal: S('dal adı (boşsa varsayılan dal)'), klasor: S('yalnızca bu klasörün altı (isteğe bağlı)') }, ['repo']),
+  fn('web_ara', 'İnternette arar (güncel bilgi, hata mesajı, örnek, oyun/teknik araştırması). Sonuçtan önemli olanları web_oku ile oku. Raporda kaynak linklerini ver.',
+    { sorgu: S('arama sorgusu (İngilizce teknik terimler daha iyi sonuç verir)') }, ['sorgu']),
+  fn('web_oku', 'Bir web sayfasını okunabilir metin olarak getirir (belge, makale, GitHub sayfası). Uzun sayfalar sayfa sayfa okunur.',
+    { url: S('https://… adresi'), sayfa: N('kaçıncı parça (1\'den başlar)') }, ['url']),
+  fn('godot_sinif', 'Godot motorunun resmi sınıf referansı: bir sınıfın metotları (imzalarıyla), özellikleri, sinyalleri. Godot kodu yazarken bir API\'den emin değilsen UYDURMA, buna bak.',
+    { sinif: S('sınıf adı, büyük/küçük harf önemli: CharacterBody2D, Node, AnimatedSprite2D'), surum: S('Godot sürümü (varsayılan 4.3)') }, ['sinif']),
+  fn('alt_ajan', 'Bir araştırma ya da inceleme işini ayrı bir yardımcı ajana verir; o işi kendi bağlamında yapar (yalnızca okuma araçları + web + bağlayıcılar) ve kısa bir özet döndürür. Ana bağlamın dolmasını önler. Birbirinden bağımsız işleri aynı yanıtta birden çok alt_ajan çağrısıyla PARALEL yaptırabilirsin.',
+    { gorev: S('alt ajanın yapacağı iş: ne bulunacak, ne dönülecek (net yaz)'), repo: S('ilgili repo (isteğe bağlı)') }, ['gorev']),
   fn('dosya_oku', 'Dosyayı satır numaralarıyla okur. Büyük dosyalarda haritadaki satır numaralarına göre baslangic/bitis ver; tamamını okuma. Birden çok dosya gerekiyorsa hepsini AYNI yanıtta ayrı çağrılarla iste (paralel okunur, her ayrı tur çok zaman alır).',
     { repo: S('sahip/repo'), yol: S('dosya yolu'), dal: S('dal (isteğe bağlı)'), baslangic: N('ilk satır (isteğe bağlı)'), bitis: N('son satır (isteğe bağlı)') },
     ['repo', 'yol']),
@@ -90,7 +98,8 @@ export const ARAC_ADLARI = new Set(ARACLAR.map((a) => a.function.name));
 const GORSEL_UZANTI = /\.(png|jpe?g|webp|gif)$/i;
 
 // Yan etkisi olmayan araçlar: aynı yanıttaki birden çok çağrı paralel çalıştırılabilir
-export const OKUMA = new Set(['repolari_listele', 'repo_haritasi', 'dosya_agaci', 'dosya_oku', 'kod_ara', 'actions_durum', 'actions_hata']);
+export const OKUMA = new Set(['repolari_listele', 'repo_haritasi', 'dosya_agaci', 'dosya_oku', 'kod_ara', 'actions_durum', 'actions_hata',
+  'web_ara', 'web_oku', 'godot_sinif', 'alt_ajan']);
 // Para harcayabilen ya da yayın yapan iş akışları: otomatik izin açıkken bile sorulur, gece hiç başlatılmaz
 const PAHALI_WORKFLOW = /siparis|sipari[sş]|uret|üret|modal|gpu|deploy|yayin|yayın|release|publish|anim|video|uc_boyut/i;
 // Bütçesi kendi sınırlı olan repolar: iş akışları onaysız başlatılabilir (gece de).
@@ -189,6 +198,9 @@ async function kontrolBekle(ctx, { repo, dal }) {
 
 export async function calistir(ad, arg, ctx) {
   const { gh, onayla, hafiza, ayar } = ctx;
+  // Bağlayıcı (MCP) araçları
+  const ek = ctx.ekAraclar?.get(ad);
+  if (ek) return await ek.calistir(arg);
 
   // Yazma işlemleri: önce hazırla ve kontrol et, sonra kullanıcıdan onay al
   let yeniIcerik, eski;
@@ -224,6 +236,15 @@ export async function calistir(ad, arg, ctx) {
   }
 
   switch (ad) {
+    case 'web_ara':
+      return await webAra(arg.sorgu, ortamDegiskenleri());
+    case 'web_oku':
+      return await webOku(arg.url, Number(arg.sayfa) || 1, ortamDegiskenleri());
+    case 'godot_sinif':
+      return await godotSinif(arg.sinif, arg.surum);
+    case 'alt_ajan':
+      if (!ctx.altAjan) return 'HATA: alt ajan burada kullanılamaz (alt ajan başka alt ajan açamaz).';
+      return await ctx.altAjan({ gorev: arg.gorev, repo: arg.repo });
     case 'repolari_listele':
       return JSON.stringify(await gh.repolar());
     case 'repo_haritasi':
@@ -449,7 +470,7 @@ export async function calistir(ad, arg, ctx) {
       await hafiza.dersEkle(arg.ders, { kapsam: arg.kapsam, etiketler: arg.etiketler, repo: arg.repo || ctx.aktifRepo });
       return 'Ders kaydedildi.';
     default:
-      return `Bilinmeyen araç: ${ad}. Kullanılabilenler: ${[...ARAC_ADLARI].join(', ')}`;
+      return `Bilinmeyen araç: ${ad}. Kullanılabilenler: ${[...ARAC_ADLARI, ...(ctx.ekAraclar?.keys() || [])].join(', ')}`;
   }
 }
 
@@ -505,6 +526,152 @@ async function siparisCiktilari(gh, repo, baslangic) {
   } catch {
     return '';
   }
+}
+
+// ---------- İnternet ----------
+
+const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
+const WEB_SURE = 30_000;
+const WEB_PARCA = 9000;
+const ortamDegiskenleri = () => globalThis.process?.env || {};
+
+const varlikCoz = (s) => s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  .replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&nbsp;/g, ' ').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/\s+/g, ' ').trim();
+
+/** Bing sonuç sayfasını ayrıştırır (anahtar gerekmez; GitHub sunucularından erişilebiliyor). */
+export function bingAyristir(html) {
+  const sonuc = [];
+  for (const parca of html.split('class="b_algo"').slice(1)) {
+    const a = parca.match(/<h2[^>]*>\s*<a [^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+    if (!a) continue;
+    let url = a[1].replace(/&amp;/g, '&');
+    // Bing yönlendirme linki: ...&u=a1<base64url(gerçek adres)>
+    const u = url.includes('bing.com/ck/') && url.match(/[?&]u=a1([^&]+)/);
+    if (u) {
+      try { url = Buffer.from(u[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'); } catch { continue; }
+    }
+    const ozet = varlikCoz((parca.match(/<p[^>]*>([\s\S]*?)<\/p>/) || [])[1] || '');
+    if (/^https?:\/\//.test(url) && !/^https?:\/\/[^/]*bing\.com\//.test(url)) sonuc.push({ baslik: varlikCoz(a[2]), url, ozet });
+  }
+  return sonuc;
+}
+
+async function webAra(sorgu, ortam) {
+  if (!sorgu) return 'HATA: sorgu boş.';
+  const kaynaklar = [
+    // İsteğe bağlı: JINA_ANAHTAR secret'ı varsa en temiz sonuç
+    ortam.JINA_ANAHTAR && (async () => {
+      const r = await fetch('https://s.jina.ai/?q=' + encodeURIComponent(sorgu), {
+        headers: { Authorization: `Bearer ${ortam.JINA_ANAHTAR}`, Accept: 'application/json', 'X-Respond-With': 'no-content' },
+        signal: AbortSignal.timeout(WEB_SURE),
+      });
+      return r.ok ? ((await r.json()).data || []).map((x) => ({ baslik: x.title, url: x.url, ozet: x.description || '' })) : [];
+    }),
+    async () => {
+      const r = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(sorgu)}&setlang=en`, {
+        headers: { 'User-Agent': UA, 'Accept-Language': 'en,tr;q=0.8' }, signal: AbortSignal.timeout(WEB_SURE),
+      });
+      return r.ok ? bingAyristir(await r.text()) : [];
+    },
+    // Yedek: Marginalia açık arama API'si (küçük ama anahtarsız)
+    async () => {
+      const r = await fetch(`https://api.marginalia.nu/public/search/${encodeURIComponent(sorgu)}?count=8`, { signal: AbortSignal.timeout(WEB_SURE) });
+      return r.ok ? ((await r.json()).results || []).map((x) => ({ baslik: x.title, url: x.url, ozet: x.description || '' })) : [];
+    },
+  ].filter(Boolean);
+  let liste = [];
+  for (const k of kaynaklar) {
+    try { liste = await k(); } catch { liste = []; }
+    if (liste.length) break;
+  }
+  if (!liste.length) {
+    return 'Arama sonuç vermedi (arama servisleri isteği engellemiş olabilir). Sorguyu değiştir ya da bildiğin bir belge adresini web_oku ile doğrudan oku.';
+  }
+  return liste.slice(0, 8).map((x, i) => `${i + 1}. ${x.baslik}\n   ${x.url}${x.ozet ? '\n   ' + x.ozet.slice(0, 240) : ''}`).join('\n') +
+    '\n\nGerekli sonuçları web_oku ile oku; raporda kullandığın linkleri ver.';
+}
+
+function htmlMetin(html) {
+  return html.replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<(br|\/p|\/div|\/h\d|\/li|\/tr)[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ')
+    .replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
+}
+
+const OKUMA_DENEME = 3;
+const OKUMA_BEKLEME = 4000;
+
+async function webOku(url, sayfa, ortam) {
+  if (!/^https?:\/\//i.test(url || '')) return 'HATA: url https:// ile başlamalı.';
+  let metin = '';
+  const durumlar = [];
+  // Jina Reader sayfayı temiz Markdown'a çevirir (anahtarsız da çalışır, dakikada ~20 istek); geçici reddi tekrar dener
+  for (let d = 0; d < OKUMA_DENEME && !metin.trim(); d++) {
+    if (d) await new Promise((r) => setTimeout(r, OKUMA_BEKLEME * d));
+    try {
+      const r = await fetch('https://r.jina.ai/' + url, {
+        headers: { Accept: 'text/plain', ...(ortam.JINA_ANAHTAR ? { Authorization: `Bearer ${ortam.JINA_ANAHTAR}` } : {}) },
+        signal: AbortSignal.timeout(WEB_SURE),
+      });
+      durumlar.push(`okuyucu ${r.status}`);
+      if (r.ok) metin = await r.text();
+      else if (![429, 500, 502, 503, 504].includes(r.status)) break;
+    } catch (e) { durumlar.push(`okuyucu ${e.name}`); }
+  }
+  if (!metin.trim()) {
+    const r = await fetch(url, {
+      headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9,tr;q=0.8' },
+      signal: AbortSignal.timeout(WEB_SURE),
+    });
+    durumlar.push(`site ${r.status}`);
+    if (!r.ok) return `HATA: sayfa açılamadı (${durumlar.join(', ')}). Başka bir kaynak dene.`;
+    const tur = r.headers.get('content-type') || '';
+    const govde = await r.text();
+    metin = tur.includes('html') ? htmlMetin(govde) : govde;
+  }
+  const toplam = Math.max(1, Math.ceil(metin.length / WEB_PARCA));
+  const n = Math.min(Math.max(1, sayfa), toplam);
+  return `(${url} — parça ${n}/${toplam})\n` + metin.slice((n - 1) * WEB_PARCA, n * WEB_PARCA) +
+    (n < toplam ? `\n…(devamı için sayfa: ${n + 1})` : '');
+}
+
+/** Godot'nun resmi XML sınıf referansını kısa bir özete çevirir. */
+export function godotXmlOzet(xml, sinif, surum) {
+  const at = (s, ad) => (s.match(new RegExp(`${ad}="([^"]*)"`)) || [])[1];
+  const ilkCumle = (s) => varlikCoz(s || '')
+    // Godot BBCode: [member velocity] → velocity, [code]x[/code] → x, [Vector2] → Vector2
+    .replace(/\[(?:member|method|param|signal|constant|enum|annotation|theme_item) ([^\]]+)\]/g, '$1')
+    .replace(/\[\/?(?:code|b|i|codeblock|codeblocks|gdscript|csharp|kbd|url[^\]]*)\]/g, '').replace(/\[(\w+)\]/g, '$1').split(/(?<=\.)\s/)[0].slice(0, 140);
+  const kok = xml.match(/<class [^>]*>/)?.[0] || '';
+  const kisa = ilkCumle((xml.match(/<brief_description>([\s\S]*?)<\/brief_description>/) || [])[1]);
+  const metotlar = [...xml.matchAll(/<method ([^>]*)>([\s\S]*?)<\/method>/g)].map(([, a, ic]) => {
+    const donus = at(ic.match(/<return [^>]*>/)?.[0] || '', 'type') || 'void';
+    const paramlar = [...ic.matchAll(/<param ([^>]*)\/?>/g)].map(([, p]) => `${at(p, 'name')}: ${at(p, 'type')}${at(p, 'default') !== undefined ? ' = ' + at(p, 'default') : ''}`);
+    const nitelik = at(a, 'qualifiers');
+    return `- ${donus} ${at(a, 'name')}(${paramlar.join(', ')})${nitelik ? ' ' + nitelik : ''} — ${ilkCumle((ic.match(/<description>([\s\S]*?)<\/description>/) || [])[1])}`;
+  });
+  const ozellikler = [...xml.matchAll(/<member ([^>]*)>([\s\S]*?)<\/member>/g)].map(([, a, ic]) =>
+    `- ${at(a, 'type')} ${at(a, 'name')}${at(a, 'default') !== undefined ? ' = ' + at(a, 'default') : ''} — ${ilkCumle(ic)}`);
+  const sinyaller = [...xml.matchAll(/<signal ([^>]*)>([\s\S]*?)<\/signal>/g)].map(([, a, ic]) =>
+    `- ${at(a, 'name')}(${[...ic.matchAll(/<param ([^>]*)\/?>/g)].map(([, p]) => `${at(p, 'name')}: ${at(p, 'type')}`).join(', ')})`);
+  const sabitler = [...xml.matchAll(/<constant ([^>]*)>/g)].map(([, a]) => `${at(a, 'enum') ? at(a, 'enum') + '.' : ''}${at(a, 'name')}`);
+  const bolum = (b, l) => (l.length ? `\n## ${b} (${l.length})\n${l.join('\n')}` : '');
+  const metin = `# ${sinif} (Godot ${surum}) — miras: ${at(kok, 'inherits') || '-'}\n${kisa}` +
+    bolum('Metotlar', metotlar) + bolum('Özellikler', ozellikler) + bolum('Sinyaller', sinyaller) +
+    (sabitler.length ? `\n## Sabitler\n${sabitler.join(', ')}` : '') +
+    `\nTam sayfa: https://docs.godotengine.org/en/${surum}/classes/class_${sinif.toLowerCase()}.html`;
+  return metin.length > MAKS ? metin.slice(0, MAKS) + '\n…(kesildi; ayrıntı için tam sayfayı web_oku ile oku)' : metin;
+}
+
+async function godotSinif(sinif, surum = '4.3') {
+  if (!/^[A-Za-z0-9_]+$/.test(sinif || '')) return 'HATA: geçerli bir sınıf adı ver (ör. CharacterBody2D).';
+  const v = String(surum || '4.3').replace(/-stable$/, '');
+  const r = await fetch(`https://raw.githubusercontent.com/godotengine/godot/${v}-stable/doc/classes/${sinif}.xml`, { signal: AbortSignal.timeout(WEB_SURE) });
+  if (r.status === 404) {
+    return `"${sinif}" sınıfı Godot ${v} çekirdek referansında yok. Adın büyük/küçük harfini kontrol et (ör. CharacterBody2D) ya da modül sınıfıysa context7 / web_ara ile bak.`;
+  }
+  if (!r.ok) return `HATA: referans alınamadı (HTTP ${r.status}).`;
+  return godotXmlOzet(await r.text(), sinif, v);
 }
 
 // Testler için (test/*.test.mjs)

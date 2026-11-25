@@ -4,6 +4,7 @@
 
 import { OTOMATIK } from './llm.js';
 import { GitHub } from './github.js';
+import { VARSAYILAN_BAGLAYICILAR } from './mcp.js';
 import { Hafiza } from './agent.js';
 import {
   Depo, HAFIZA_REPO_ADI, CALISAN_DURUMLAR, gorevBaslat, yeniOturum, yeniId, trSimdi,
@@ -25,7 +26,7 @@ const yaz = (k, v) => {
 };
 
 // Bulutla paylaşılan ayarlar (ayarlar.json); token gibi cihaz ayarları yalnızca burada kalır
-const BULUT_ALANLARI = ['model', 'roller', 'planla', 'gozdenGecir', 'onayIste', 'ozDeg', 'maksAdim'];
+const BULUT_ALANLARI = ['model', 'roller', 'planla', 'gozdenGecir', 'onayIste', 'ozDeg', 'maksAdim', 'baglayicilar'];
 const VARSAYILAN = {
   ghToken: '',
   hafizaRepo: '',
@@ -41,6 +42,7 @@ const VARSAYILAN = {
   onayIste: true,
   ozDeg: true,
   maksAdim: 40,
+  baglayicilar: VARSAYILAN_BAGLAYICILAR,
 };
 const ayar = { ...VARSAYILAN, ...oku('ayar', {}) };
 // Eski sürümden kalan alanlar (sağlayıcı anahtarları, sıra) artık kullanılmıyor
@@ -606,6 +608,7 @@ function ayarlariAc() {
   $('gozModel').value = modelGoster(ayar.roller.gozden?.model);
   for (const k of ['planla', 'gozdenGecir', 'onayIste', 'ozDeg']) $(k).checked = ayar[k];
   $('maksAdim').value = ayar.maksAdim;
+  baglayiciCiz();
   $('ayarlar').hidden = false;
 }
 
@@ -621,8 +624,30 @@ function formdanOku() {
   };
   for (const k of ['planla', 'gozdenGecir', 'onayIste', 'ozDeg']) ayar[k] = $(k).checked;
   ayar.maksAdim = Number($('maksAdim').value) || 40;
+  ayar.baglayicilar = ayar.baglayicilar.map((b, i) => ({ ...b, acik: $(`bag${i}`)?.checked ?? b.acik }));
   yaz('ayar', ayar);
 }
+
+// ---------- Bağlayıcılar (MCP) ----------
+function baglayiciCiz() {
+  $('bagListe').innerHTML = ayar.baglayicilar.map((b, i) =>
+    `<div class="bag"><label class="satir"><input id="bag${i}" type="checkbox"${b.acik !== false ? ' checked' : ''} /> <b>${kacis(b.ad)}</b></label>` +
+    `<small>${kacis(b.aciklama || b.url)}</small>` +
+    (VARSAYILAN_BAGLAYICILAR.some((v) => v.ad === b.ad) ? '' : ` <button data-sil="${i}" class="kucuk">sil</button>`) + '</div>').join('');
+  for (const btn of $('bagListe').querySelectorAll('[data-sil]')) {
+    btn.onclick = () => { ayar.baglayicilar = ayar.baglayicilar.filter((_, i) => i !== Number(btn.dataset.sil)); baglayiciCiz(); };
+  }
+}
+$('bagEkle').onclick = () => {
+  const ad = $('bagAd').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+  const url = $('bagUrl').value.trim();
+  if (!ad || !/^https:\/\//.test(url)) return alert('Kısa bir ad ve https:// ile başlayan MCP adresi gir.');
+  if (ayar.baglayicilar.some((b) => b.ad === ad)) return alert('Bu adda bağlayıcı zaten var.');
+  ayar.baglayicilar = [...ayar.baglayicilar, { ad, url, acik: true, aciklama: url }];
+  $('bagAd').value = '';
+  $('bagUrl').value = '';
+  baglayiciCiz();
+};
 
 $('ayarBtn').onclick = ayarlariAc;
 $('ayarKapat').onclick = () => { $('ayarlar').hidden = true; };
@@ -682,6 +707,9 @@ $('bulutKontrol').onclick = async () => {
         if (adlar === null) sonuc.push(`<div>❔ ${md(`Secret \`${s}\` okunamadı (değeri: ${ne}). Yoksa ekle: ${ekle}`)}</div>`);
         else sonuc.push(satir(adlar.includes(s), adlar.includes(s) ? `Secret ${s} tanımlı` : `Secret \`${s}\` eksik (değeri: ${ne}). Ekle: ${ekle}`));
       }
+      // İsteğe bağlı anahtarlar: yoksa ücretsiz anahtarsız sınırlar kullanılır
+      const istege = ['JINA_ANAHTAR', 'CONTEXT7_ANAHTAR', 'MCP_ANAHTARLARI'].filter((x) => adlar?.includes(x));
+      sonuc.push(`<div>ℹ️ ${md(`İnternet araması ve bağlayıcılar anahtarsız çalışır${istege.length ? ` (tanımlı ek anahtarlar: ${istege.join(', ')})` : ''}.`)}</div>`);
     }
   } catch (e) {
     sonuc.push(satir(false, e.message));

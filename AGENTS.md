@@ -19,6 +19,11 @@ Burayı değiştirmek için yeni APK gerekmez: dosyayı düzenleyip commit etmen
 - Okuduğun ve değişmeyen dosyayı yeniden okuma. Büyük dosyada yalnızca ilgili satır aralığını oku.
 - Tek dosyalık küçük işte uzun plan yapma; doğrudan oku, düzelt, doğrula.
 
+## Araştırma (uydurma, bak)
+- Bir API'den emin değilsen bak. Godot'da `godot_sinif` (projenin sürümüyle), diğer kütüphanelerde `mcp_context7_*`, açık GitHub projelerinde `mcp_deepwiki_*`, hata mesajı ve güncel bilgi için `web_ara` → `web_oku`.
+- Uzun araştırmayı ya da çok dosyalı incelemeyi `alt_ajan`a ver. Bağımsız işleri aynı yanıtta birden çok alt_ajanla paralel yaptır.
+- Kullandığın kaynakların linkini raporda ver.
+
 ## Sormadan yapmayacakların
 - İstek belirsizse, pahalı işe girişmeden önce **tek kısa soru** sor ve dur.
 - Başka bir sistemi (workflow, API) çağırmadan önce tanımını oku, girdilerini açıkça ver. Varsayılan başka bir repoyu hedefliyor olabilir.

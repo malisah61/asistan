@@ -10,6 +10,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GitHub } from '../www/js/github.js';
 import { Hafiza, gorevCalistir, ozDegerlendir } from '../www/js/agent.js';
+import { VARSAYILAN_BAGLAYICILAR, baglayicilariYukle } from '../www/js/mcp.js';
 import { sartOnayiAyarla, modelleriGetir, OTOMATIK, olcum } from '../www/js/llm.js';
 import { Depo, HAFIZA_REPO_ADI, trSimdi, yeniId, yeniOturum } from '../www/js/depo.js';
 
@@ -213,9 +214,22 @@ async function oturumCalistir({ gh, depo, hafiza, ayar, id, gece = false }) {
   o.kosu = { url: process.env.KOSU_URL || '', baslangic: Date.now() };
   await hemenKaydet();
 
+  // Bağlayıcılar (MCP): ayarlar.json → baglayicilar; anahtarlar yalnızca secret'tan gelir
+  let ekAraclar = [];
+  if (ayar.baglayicilarKapali !== true) {
+    let anahtarlar = {};
+    try { anahtarlar = JSON.parse(process.env.MCP_ANAHTARLARI || '{}'); } catch { log('MCP_ANAHTARLARI geçerli JSON değil'); }
+    const b = await baglayicilariYukle(ayar.baglayicilar || VARSAYILAN_BAGLAYICILAR, { ortam: process.env, anahtarlar });
+    ekAraclar = b.araclar;
+    // Yalnızca sorun olursa sohbete yaz; her mesajda kalabalık etmesin
+    const sorunlu = b.notlar.filter((x) => x.includes('bağlanamadı'));
+    if (sorunlu.length) not(`Bağlayıcı sorunu: ${sorunlu.join(' · ')}`);
+    log(`bağlayıcı aracı: ${ekAraclar.length}`);
+  }
+
   try {
     const sonuc = await gorevCalistir({
-      ayar: gorevAyari, gh, hafiza, aktifRepo: o.repo, gecmis, istek, onceki,
+      ayar: gorevAyari, gh, hafiza, aktifRepo: o.repo, gecmis, istek, onceki, ekAraclar,
       ui: {
         durum: (t) => { if (t) { o.durumMetni = t; sonraKaydet(); } },
         onayla: async (ad, ozet, { zorunlu = false } = {}) => {

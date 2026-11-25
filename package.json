@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Telefonda çalışan, GitHub'a bağlı, kendi derslerinden öğrenen kodlama asistanı",
   "scripts": {
-    "check": "node --check www/js/llm.js && node --check www/js/github.js && node --check www/js/tools.js && node --check www/js/agent.js && node --check www/js/app.js && node --check www/js/kontrol.js && node --check www/js/depo.js && node --check www/js/apk.js && node --check bulut/calistir.mjs",
+    "check": "node --check www/js/llm.js && node --check www/js/github.js && node --check www/js/tools.js && node --check www/js/agent.js && node --check www/js/app.js && node --check www/js/kontrol.js && node --check www/js/depo.js && node --check www/js/apk.js && node --check www/js/mcp.js && node --check bulut/calistir.mjs && node --check bulut/baglanti.mjs",
     "test": "node --test --test-concurrency=1 test/*.test.mjs"
   },
   "dependencies": {
