@@ -1,10 +1,22 @@
-import { PROVIDERS, OTOMATIK, modelleriGetir, sartOnayiAyarla } from './llm.js';
+// Arayüz. Görevler bulutta (GitHub Actions, bulut/calistir.mjs) çalışır; burası oturum dosyalarını
+// gizli hafıza reposuna yazar, görevi başlatır ve ilerlemeyi yoklayarak gösterir.
+// Böylece uygulama kapansa da görev sürer, telefon ve web aynı sohbetleri görür.
+
+import { OTOMATIK } from './llm.js';
 import { GitHub } from './github.js';
-import { Hafiza, gorevCalistir, ozDegerlendir } from './agent.js';
+import { Hafiza } from './agent.js';
+import {
+  Depo, HAFIZA_REPO_ADI, CALISAN_DURUMLAR, gorevBaslat, yeniOturum, yeniId, trSimdi,
+} from './depo.js';
 
 const $ = (id) => document.getElementById(id);
 
-// ---------- Depolama ----------
+const YOKLAMA_ARALIGI = 4000;
+// Bu kadar süre bulutta başlamayan ya da ses vermeyen görev için uyarı göster
+const BASLAMA_UYARI = 3 * 60_000;
+const SESSIZ_UYARI = 20 * 60_000;
+
+// ---------- Yerel depolama ----------
 const oku = (k, v) => {
   try { return JSON.parse(localStorage.getItem(k)) ?? v; } catch { return v; }
 };
@@ -12,40 +24,44 @@ const yaz = (k, v) => {
   try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* dolu olabilir */ }
 };
 
+// Bulutla paylaşılan ayarlar (ayarlar.json); token gibi cihaz ayarları yalnızca burada kalır
+const BULUT_ALANLARI = ['model', 'roller', 'planla', 'gozdenGecir', 'onayIste', 'ozDeg', 'maksAdim'];
 const VARSAYILAN = {
   ghToken: '',
   hafizaRepo: '',
-  anahtar: {},
-  model: {},
-  sira: ['evren'],
-  onayIste: true,
-  ozDeg: true,
-  planla: true,
-  gozdenGecir: true,
-  maksAdim: 40,
+  asistanRepo: '',
   aktifRepo: '',
+  model: {},
   roller: {
     planlayici: { saglayici: 'evren', model: OTOMATIK },
     gozden: { saglayici: 'evren', model: OTOMATIK },
   },
+  planla: true,
+  gozdenGecir: true,
+  onayIste: true,
+  ozDeg: true,
+  maksAdim: 40,
 };
-let ayar = { ...VARSAYILAN, ...oku('ayar', {}) };
-ayar.roller = { ...VARSAYILAN.roller, ...(ayar.roller || {}) };
-// Eski kayıtlarda kaldırılmış sağlayıcılar (Gemini, Groq, OpenRouter) olabilir
-ayar.sira = ayar.sira.filter((id) => PROVIDERS[id]);
-for (const id of Object.keys(PROVIDERS)) {
-  if (!ayar.sira.includes(id)) ayar.sira.unshift(id);
+const ayar = { ...VARSAYILAN, ...oku('ayar', {}) };
+// Eski sürümden kalan alanlar (sağlayıcı anahtarları, sıra) artık kullanılmıyor
+delete ayar.anahtar;
+delete ayar.sira;
+ayar.roller = { ...(ayar.roller || {}) };
+for (const r of Object.keys(VARSAYILAN.roller)) {
+  ayar.roller[r] = { ...VARSAYILAN.roller[r], ...(ayar.roller[r] || {}), saglayici: 'evren' };
 }
-for (const rol of Object.keys(ayar.roller)) {
-  if (!PROVIDERS[ayar.roller[rol]?.saglayici]) ayar.roller[rol] = { ...VARSAYILAN.roller[rol] };
-}
-let kayit = oku('sohbet', []); // [{rol, metin, ...}]
-let calisiyor = false;
-let durdur = false;
 
-// ---------- Basit markdown ----------
+let gh = null;
+let depo = null;
+let liste = oku('oturumListe', []);
+let oturum = null; // açık oturum
+let yoklama = null;
+let cevaplanan = ''; // son cevaplanan soru id'si
+let gonderiliyor = false;
+
+// ---------- Biçimlendirme ----------
 function kacis(s) {
-  return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 function md(s) {
   const parcalar = String(s).split(/```/);
@@ -54,35 +70,68 @@ function md(s) {
     return kacis(p)
       .replace(/`([^`\n]+)`/g, '<code>$1</code>')
       .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
-      .replace(/(https?:\/\/[^\s)<]+)/g, '<a href="$1">$1</a>');
+      .replace(/(https?:\/\/[^\s)<]+)/g, '<a href="$1" target="_blank">$1</a>');
   }).join('');
 }
+function once(t) {
+  const dk = Math.round((Date.now() - t) / 60_000);
+  if (dk < 1) return 'az önce';
+  if (dk < 60) return `${dk} dk önce`;
+  if (dk < 1440) return `${Math.round(dk / 60)} sa önce`;
+  return new Date(t).toLocaleDateString('tr-TR');
+}
+const DURUM_IKON = { kuyrukta: '⏳', calisiyor: '⚙️', bitti: '✓', hata: '⚠', durduruldu: '■', bos: '' };
 
 // ---------- Sohbet görünümü ----------
-function ekle(m, kaydet = true) {
-  const kutu = $('sohbet');
+function mesajCiz(m) {
   if (m.rol === 'arac') {
     const d = document.createElement('details');
     d.className = 'arac';
     d.innerHTML = `<summary>🔧 ${kacis(m.ad)}</summary><pre>${kacis(m.arg)}\n\n→ ${kacis(m.sonuc)}</pre>`;
-    kutu.appendChild(d);
-  } else if (m.rol === 'ders') {
+    return d;
+  }
+  if (m.rol === 'ders' || m.rol === 'not') {
     const d = document.createElement('div');
-    d.className = 'ders-notu';
-    d.textContent = '📚 Yeni ders: ' + m.metin;
-    kutu.appendChild(d);
+    d.className = m.rol === 'ders' ? 'ders-notu' : 'bilgi-notu';
+    d.textContent = (m.rol === 'ders' ? '📚 Yeni ders: ' : 'ℹ ') + m.metin;
+    return d;
+  }
+  const d = document.createElement('div');
+  d.className = 'mesaj ' + m.rol;
+  d.innerHTML = md(m.metin) + (m.alt ? `<div class="alt">${kacis(m.alt)}</div>` : '');
+  return d;
+}
+
+function sohbetiCiz() {
+  const kutu = $('sohbet');
+  const altta = kutu.scrollHeight - kutu.scrollTop - kutu.clientHeight < 80;
+  // Yeniden çizimde kullanıcının açtığı araç detayları açık kalsın
+  const acik = new Set([...kutu.querySelectorAll('details.arac')].map((d, i) => (d.open ? i : -1)).filter((i) => i >= 0));
+  kutu.innerHTML = '';
+  if (!oturum || !oturum.mesajlar?.length) {
+    kutu.appendChild(mesajCiz({ rol: 'asistan', metin: hosgeldinMetni() }));
   } else {
-    const d = document.createElement('div');
-    d.className = 'mesaj ' + m.rol;
-    d.innerHTML = md(m.metin) + (m.alt ? `<div class="alt">${kacis(m.alt)}</div>` : '');
-    kutu.appendChild(d);
+    let i = 0;
+    for (const m of oturum.mesajlar) {
+      const el = mesajCiz(m);
+      if (m.rol === 'arac' && acik.has(i++)) el.open = true;
+      kutu.appendChild(el);
+    }
   }
-  kutu.scrollTop = kutu.scrollHeight;
-  if (kaydet) {
-    kayit.push(m);
-    if (kayit.length > 300) kayit = kayit.slice(-300);
-    yaz('sohbet', kayit);
-  }
+  if (altta || !oturum) kutu.scrollTop = kutu.scrollHeight;
+
+  $('oturumBaslik').hidden = !oturum;
+  if (oturum) $('oturumBaslik').textContent = oturum.baslik;
+  const calisiyor = Boolean(oturum && CALISAN_DURUMLAR.has(oturum.durum));
+  planGoster(calisiyor || oturum?.plan?.some((m) => m.durum !== 'bitti') ? oturum.plan : []);
+  durumGoster();
+  $('gonder').textContent = calisiyor ? '■' : '➤';
+  soruGoster();
+}
+
+function hosgeldinMetni() {
+  if (!ayar.ghToken) return 'Merhaba! Başlamak için ⚙ Ayarlar\'dan GitHub token gir ve "Bulut kurulumu"nu kontrol et.';
+  return 'Merhaba! Üstten bir repo seç ve ne yapmak istediğini yaz.\nGörev bulutta çalışır: uygulamayı kapatsan da sürer, sonra ☰ Sohbetler\'den bakabilirsin.';
 }
 
 function planGoster(maddeler) {
@@ -100,264 +149,465 @@ function planGoster(maddeler) {
 }
 $('planKutu').addEventListener('toggle', (e) => { e.target.dataset.elle = '1'; });
 
-function durum(t) {
+function durumGoster(metin) {
   const d = $('durum');
+  let t = metin || '';
+  if (!t && oturum && CALISAN_DURUMLAR.has(oturum.durum)) {
+    const sessiz = Date.now() - (oturum.guncelleme || Date.now());
+    t = oturum.durumMetni || (oturum.durum === 'kuyrukta' ? 'Bulutta sıraya alındı…' : 'Çalışıyor…');
+    if (oturum.durum === 'kuyrukta' && sessiz > BASLAMA_UYARI) {
+      t = `Bulut görevi başlamadı. Actions'ı kontrol et: https://github.com/${ayar.asistanRepo}/actions`;
+    } else if (oturum.durum === 'calisiyor' && sessiz > SESSIZ_UYARI) {
+      t = `${once(oturum.guncelleme)} beri ses yok, takılmış olabilir.${oturum.kosu?.url ? ' ' + oturum.kosu.url : ''}`;
+    }
+  }
   d.hidden = !t;
-  d.textContent = t || '';
+  d.innerHTML = md(t);
 }
 
-// Modele giden geçmiş: yalnızca kullanıcı ve asistan metinleri
-function gecmis() {
-  return kayit
-    .filter((m) => m.rol === 'kullanici' || m.rol === 'asistan')
-    .map((m) => ({ role: m.rol === 'kullanici' ? 'user' : 'assistant', content: m.metin }));
+// ---------- Soru / onay ----------
+function soruGoster() {
+  const s = oturum?.soru;
+  const panel = $('onay');
+  if (!s || s.id === cevaplanan || !CALISAN_DURUMLAR.has(oturum.durum)) {
+    if (panel.dataset.soru) {
+      panel.hidden = true;
+      delete panel.dataset.soru;
+    }
+    return;
+  }
+  if (panel.dataset.soru === s.id) return;
+  panel.dataset.soru = s.id;
+  $('onayBaslik').textContent = s.baslik;
+  $('onayMetin').innerHTML = md(s.metin);
+  $('onayEvet').textContent = s.evet || 'İzin ver';
+  panel.hidden = false;
+  const id = oturum.id;
+  const bitir = async (v) => {
+    panel.hidden = true;
+    delete panel.dataset.soru;
+    cevaplanan = s.id;
+    durumGoster(v ? 'Onay gönderiliyor…' : 'Ret gönderiliyor…');
+    try {
+      await depo.cevapla(id, s.id, v);
+    } catch (e) {
+      cevaplanan = '';
+      durumGoster('⚠ Cevap gönderilemedi: ' + e.message);
+    }
+  };
+  $('onayEvet').onclick = () => bitir(true);
+  $('onayHayir').onclick = () => bitir(false);
 }
 
-// ---------- Onay penceresi ----------
-function onayla(ad, ozet) {
-  return new Promise((coz) => {
-    $('onayBaslik').textContent = `İzin: ${ad}`;
-    $('onayMetin').textContent = ozet;
-    $('onay').hidden = false;
-    const bitir = (v) => {
-      $('onay').hidden = true;
-      $('onayEvet').onclick = $('onayHayir').onclick = null;
-      coz(v);
-    };
-    $('onayEvet').onclick = () => bitir(true);
-    $('onayHayir').onclick = () => bitir(false);
-  });
+// ---------- Bağlantı ----------
+async function baglan() {
+  gh = null;
+  depo = null;
+  if (!ayar.ghToken) return false;
+  gh = new GitHub(ayar.ghToken);
+  const k = await gh.kullanici();
+  // Eski sürümde hafıza asistan reposundaydı; artık ayrı ve gizli
+  if (!ayar.hafizaRepo || ayar.hafizaRepo === `${k.login}/asistan`) ayar.hafizaRepo = `${k.login}/${HAFIZA_REPO_ADI}`;
+  if (!ayar.asistanRepo) ayar.asistanRepo = `${k.login}/asistan`;
+  yaz('ayar', ayar);
+  if (!(await gh.repoBilgi(ayar.hafizaRepo))) {
+    try {
+      await gh.ozelRepoOlustur(ayar.hafizaRepo.split('/')[1], 'Asistan: sohbetler, dersler, gece görevleri (gizli)');
+    } catch {
+      throw new Error(`Gizli hafıza reposu (${ayar.hafizaRepo}) yok ve oluşturulamadı. GitHub'da bu adla **private** bir repo aç ("Add a README" işaretli), sonra uygulamayı yeniden aç: https://github.com/new`);
+    }
+  }
+  depo = new Depo(gh, ayar.hafizaRepo);
+  return true;
 }
 
-// EVREN gibi sağlayıcılar ilk istekte kullanım şartlarının onaylanmasını ister (tek seferlik)
-function sartlariGoster({ saglayici, mesaj, adres, surum }) {
-  return new Promise((coz) => {
-    $('onayBaslik').textContent = `${saglayici} kullanım şartları`;
-    $('onayMetin').innerHTML = md(
-      `${saglayici} kullanmaya başlamadan önce kullanım şartlarını onaylamanı istiyor (sürüm ${surum}).\n\n` +
-      (mesaj ? mesaj + '\n\n' : '') +
-      (adres ? `Şartları oku: ${adres}\n\n` : '') +
-      'Kabul edersen bu bir kez sunucuya bildirilir ve bir daha sorulmaz. Reddedersen diğer sağlayıcılarla devam edilir.');
-    const evet = $('onayEvet');
-    const eskiMetin = evet.textContent;
-    evet.textContent = 'Kabul ediyorum';
-    $('onay').hidden = false;
-    const bitir = (v) => {
-      $('onay').hidden = true;
-      evet.textContent = eskiMetin;
-      evet.onclick = $('onayHayir').onclick = null;
-      coz(v);
-    };
-    evet.onclick = () => bitir(true);
-    $('onayHayir').onclick = () => bitir(false);
-  });
+async function listeyiYenile() {
+  if (!depo) return;
+  liste = await depo.liste();
+  yaz('oturumListe', liste);
+  if (!$('oturumlar').hidden) oturumListesiCiz();
 }
-sartOnayiAyarla(sartlariGoster);
+
+async function oturumAc(id) {
+  durdurYoklama();
+  const ozet = liste.find((x) => x.id === id);
+  oturum = oku('oturum:' + id, null) || (ozet ? { ...ozet, mesajlar: [], plan: [] } : null);
+  yaz('sonOturum', id);
+  delete $('planKutu').dataset.elle;
+  repoSeciciAyarla();
+  sohbetiCiz();
+  await oturumuTazele();
+}
+
+async function oturumuTazele() {
+  if (!depo || !oturum) return;
+  try {
+    const yeni = await depo.oturum(oturum.id);
+    if (!yeni) return;
+    const degisti = yeni.guncelleme !== oturum.guncelleme || yeni.mesajlar?.length !== oturum.mesajlar?.length;
+    oturum = yeni;
+    yaz('oturum:' + oturum.id, oturum);
+    if (degisti) sohbetiCiz();
+    else durumGoster();
+  } catch (e) {
+    durumGoster('⚠ ' + e.message);
+  }
+  if (CALISAN_DURUMLAR.has(oturum.durum)) {
+    baslatYoklama();
+  } else {
+    durdurYoklama();
+    const l = liste.find((x) => x.id === oturum.id);
+    if (l && l.durum !== oturum.durum) listeyiYenile().catch(() => {});
+  }
+}
+
+function baslatYoklama() {
+  if (yoklama) return;
+  yoklama = setInterval(() => {
+    if (!document.hidden) oturumuTazele();
+  }, YOKLAMA_ARALIGI);
+}
+function durdurYoklama() {
+  clearInterval(yoklama);
+  yoklama = null;
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    oturumuTazele();
+    listeyiYenile().catch(() => {});
+  }
+});
 
 // ---------- Görev ----------
 async function gonder() {
-  if (calisiyor) {
-    durdur = true;
-    durum('Durduruluyor…');
+  if (gonderiliyor) return;
+  if (oturum && CALISAN_DURUMLAR.has(oturum.durum)) {
+    durumGoster('Durduruluyor…');
+    try {
+      await depo.durIste(oturum.id);
+    } catch (e) {
+      durumGoster('⚠ ' + e.message);
+    }
     return;
   }
   const istek = $('giris').value.trim();
   if (!istek) return;
-  if (!ayar.ghToken || !Object.values(ayar.anahtar).some(Boolean)) {
-    ayarlariAc();
-    return;
-  }
-  const onceki = gecmis();
-  $('giris').value = '';
-  boyutla();
-  ekle({ rol: 'kullanici', metin: istek });
+  if (!depo) return ayarlariAc();
 
-  calisiyor = true;
-  durdur = false;
-  $('gonder').textContent = '■';
-  planGoster([]);
-  delete $('planKutu').dataset.elle;
-  const gh = new GitHub(ayar.ghToken);
+  gonderiliyor = true;
+  $('gonder').disabled = true;
   try {
-    const hafiza = new Hafiza(gh, await hafizaReposu(gh));
-    const sonuc = await gorevCalistir({
-      ayar, gh, hafiza,
-      aktifRepo: ayar.aktifRepo,
-      gecmis: onceki,
-      istek,
-      ui: {
-        durum,
-        onayla,
-        plan: planGoster,
-        durdurulduMu: () => durdur,
-        arac: (ad, arg, s) => ekle({ rol: 'arac', ad, arg: JSON.stringify(arg, null, 1).slice(0, 3000), sonuc: String(s).slice(0, 3000) }),
-      },
-    });
-    ekle({ rol: 'asistan', metin: sonuc.cevap, alt: sonuc.saglayici ? `${sonuc.saglayici} · ${sonuc.model}` : '' });
-
-    if (ayar.ozDeg && !durdur) {
-      durum('Bu işten ders çıkarıyor…');
-      const ders = await ozDegerlendir({ ayar, hafiza, aktifRepo: ayar.aktifRepo, istek, cevap: sonuc.cevap, gorev: sonuc.gorev });
-      if (ders) ekle({ rol: 'ders', metin: ders });
-    }
+    if (!oturum) oturum = yeniOturum({ baslik: istek, repo: $('repoSec').value });
+    yaz('sonOturum', oturum.id);
+    oturum.repo = $('repoSec').value || oturum.repo;
+    $('giris').value = '';
+    boyutla();
+    await gorevBaslat({ gh, depo, asistanRepo: ayar.asistanRepo, oturum, istek });
+    yaz('oturum:' + oturum.id, oturum);
+    sohbetiCiz();
+    baslatYoklama();
+    listeyiYenile().catch(() => {});
   } catch (e) {
-    ekle({ rol: 'hata', metin: '⚠ ' + e.message });
-  } finally {
-    // Kalkmış bir modelin yerine yenisi seçildiyse kalıcı olsun
-    if (ayar.degisti) {
-      delete ayar.degisti;
-      yaz('ayar', ayar);
+    // Mesaj kaydedildi ama görev başlatılamadıysa kullanıcı görsün
+    if (oturum) {
+      oturum.durum = 'hata';
+      oturum.mesajlar.push({ rol: 'hata', metin: `⚠ Görev başlatılamadı: ${e.message}` });
+      depo.oturumYaz(oturum).catch(() => {});
+      sohbetiCiz();
     }
-    calisiyor = false;
-    durum('');
-    $('gonder').textContent = '➤';
+  } finally {
+    gonderiliyor = false;
+    $('gonder').disabled = false;
   }
-}
-
-async function hafizaReposu(gh) {
-  if (ayar.hafizaRepo) return ayar.hafizaRepo;
-  const k = await gh.kullanici();
-  ayar.hafizaRepo = `${k.login}/asistan`;
-  yaz('ayar', ayar);
-  return ayar.hafizaRepo;
 }
 
 // ---------- Repo seçici ----------
 async function repolariYukle() {
-  const sec = $('repoSec');
-  if (!ayar.ghToken) return;
+  if (!gh) return;
   try {
-    const liste = await new GitHub(ayar.ghToken).repolar();
-    sec.innerHTML = '<option value="">Repo seçilmedi</option>' +
-      liste.map((r) => `<option value="${kacis(r.ad)}">${kacis(r.ad.split('/')[1])}${r.ozel ? ' 🔒' : ''}</option>`).join('');
-    sec.value = ayar.aktifRepo || '';
+    const l = await gh.repolar();
+    $('repoSec').innerHTML = '<option value="">Repo seçilmedi</option>' +
+      l.filter((r) => r.ad !== ayar.hafizaRepo)
+        .map((r) => `<option value="${kacis(r.ad)}">${kacis(r.ad.split('/')[1])}${r.ozel ? ' 🔒' : ''}</option>`).join('');
+    repoSeciciAyarla();
   } catch (e) {
-    ekle({ rol: 'hata', metin: '⚠ Repolar alınamadı: ' + e.message }, false);
+    durumGoster('⚠ Repolar alınamadı: ' + e.message);
   }
+}
+function repoSeciciAyarla() {
+  const r = (oturum ? oturum.repo : ayar.aktifRepo) || '';
+  if (r && ![...$('repoSec').options].some((o) => o.value === r)) {
+    $('repoSec').insertAdjacentHTML('beforeend', `<option value="${kacis(r)}">${kacis(r.split('/')[1])}</option>`);
+  }
+  $('repoSec').value = r;
 }
 $('repoSec').onchange = (e) => {
   ayar.aktifRepo = e.target.value;
   yaz('ayar', ayar);
+  if (oturum) oturum.repo = e.target.value; // bir sonraki mesajla kaydedilir
 };
 
-// ---------- Ayarlar ----------
-function saglayicilariCiz() {
-  const kutu = $('saglayicilar');
-  kutu.innerHTML = '';
-  ayar.sira.forEach((id, i) => {
-    const p = PROVIDERS[id];
-    const d = document.createElement('div');
-    d.className = 'saglayici';
-    d.innerHTML = `
-      <div class="ust"><b>${i + 1}. ${p.ad}</b>
-        <button data-yukari="${i}" ${i === 0 ? 'disabled' : ''}>▲</button>
-        <button data-asagi="${i}" ${i === ayar.sira.length - 1 ? 'disabled' : ''}>▼</button>
+// ---------- Sohbetler paneli ----------
+function oturumListesiCiz() {
+  const kutu = $('oturumListe');
+  if (!liste.length) {
+    kutu.innerHTML = '<p class="not">Henüz sohbet yok.</p>';
+    return;
+  }
+  kutu.innerHTML = liste.map((o) => `
+    <div class="oturum-satir ${oturum?.id === o.id ? 'secili' : ''}" data-ac="${kacis(o.id)}">
+      <div class="oturum-bilgi">
+        <b>${kacis(DURUM_IKON[o.durum] || '')} ${kacis(o.baslik)}</b>
+        <small>${kacis(o.repo ? o.repo.split('/')[1] : 'repo yok')} · ${once(o.guncelleme)}</small>
       </div>
-      ${p.not ? `<small class="not">${kacis(p.not)}</small>` : ''}
-      <label>API anahtarı ${p.anahtarSayfasi ? `<a href="${p.anahtarSayfasi}">(anahtar al)</a>` : ''}
-        <input type="password" data-anahtar="${id}" value="${kacis(ayar.anahtar[id] || '')}" autocomplete="off" />
-      </label>
-      <label>Model
-        <input data-model="${id}" list="liste-${id}" value="${kacis(ayar.model[id] || OTOMATIK)}" />
-        <datalist id="liste-${id}"></datalist>
-      </label>
-      <button data-getir="${id}">Modelleri getir</button>`;
-    kutu.appendChild(d);
+      <button data-sil="${kacis(o.id)}" title="Sil">🗑</button>
+    </div>`).join('');
+}
+$('oturumListe').onclick = async (e) => {
+  const sil = e.target.closest('[data-sil]');
+  if (sil) {
+    const id = sil.dataset.sil;
+    if (!confirm('Bu sohbet silinsin mi?')) return;
+    try {
+      await depo.oturumSil(id);
+      localStorage.removeItem('oturum:' + id);
+      if (oturum?.id === id) yeniSohbet();
+      await listeyiYenile();
+    } catch (err) {
+      alert('Silinemedi: ' + err.message);
+    }
+    return;
+  }
+  const ac = e.target.closest('[data-ac]');
+  if (ac) {
+    $('oturumlar').hidden = true;
+    await oturumAc(ac.dataset.ac);
+  }
+};
+$('oturumBtn').onclick = () => {
+  oturumListesiCiz();
+  $('oturumlar').hidden = false;
+  listeyiYenile().catch(() => {});
+};
+$('oturumKapat').onclick = () => { $('oturumlar').hidden = true; };
+$('oturumYeni').onclick = () => {
+  $('oturumlar').hidden = true;
+  yeniSohbet();
+};
+
+function yeniSohbet() {
+  durdurYoklama();
+  oturum = null;
+  localStorage.removeItem('sonOturum');
+  delete $('planKutu').dataset.elle;
+  repoSeciciAyarla();
+  sohbetiCiz();
+  $('giris').focus();
+}
+$('yeniSohbet').onclick = yeniSohbet;
+
+// ---------- Gece görevleri ----------
+let geceListesi = [];
+function geceCiz() {
+  const saatler = Array.from({ length: 24 }, (_, i) => i);
+  const repolar = [...$('repoSec').options].map((o) => o.value).filter(Boolean);
+  $('geceListe').innerHTML = geceListesi.map((g, i) => {
+    const repoSecenek = [...new Set([g.repo, ...repolar].filter(Boolean))]
+      .map((r) => `<option value="${kacis(r)}" ${r === g.repo ? 'selected' : ''}>${kacis(r.split('/')[1])}</option>`).join('');
+    return `
+    <div class="gece-gorev" data-i="${i}">
+      <div class="iki">
+        <input data-alan="ad" value="${kacis(g.ad)}" placeholder="Görev adı" />
+        <select data-alan="saat">${saatler.map((s) => `<option value="${s}" ${s === Number(g.saat) ? 'selected' : ''}>${String(s).padStart(2, '0')}:00</option>`).join('')}</select>
+      </div>
+      <select data-alan="repo"><option value="">Repo seçilmedi</option>${repoSecenek}</select>
+      <textarea data-alan="istek" rows="3" placeholder="Her gece ne yapsın? (örn. açık issue'lara bak, en küçüğünü çöz, PR aç)">${kacis(g.istek)}</textarea>
+      <div class="iki">
+        <label class="satir"><input type="checkbox" data-alan="aktif" ${g.aktif !== false ? 'checked' : ''} /> Açık</label>
+        <button data-simdi="${i}">▶ Şimdi</button>
+        <button data-gsil="${i}">🗑</button>
+      </div>
+      <small class="not">${g.sonGun ? `Son çalışma: ${kacis(g.sonGun)}` : 'Henüz çalışmadı'}</small>
+    </div>`;
+  }).join('') || '<p class="not">Henüz gece görevi yok.</p>';
+}
+function geceFormdanOku() {
+  document.querySelectorAll('.gece-gorev').forEach((el) => {
+    const g = geceListesi[+el.dataset.i];
+    el.querySelectorAll('[data-alan]').forEach((f) => {
+      const a = f.dataset.alan;
+      g[a] = a === 'aktif' ? f.checked : a === 'saat' ? Number(f.value) : f.value.trim();
+    });
   });
+}
+$('geceBtn').onclick = async () => {
+  if (!depo) return ayarlariAc();
+  $('geceListe').innerHTML = '<p class="not">Yükleniyor…</p>';
+  $('gece').hidden = false;
+  try {
+    geceListesi = await depo.geceGorevleri();
+    geceCiz();
+  } catch (e) {
+    $('geceListe').innerHTML = `<p class="not">Hata: ${kacis(e.message)}</p>`;
+  }
+};
+$('geceEkle').onclick = () => {
+  geceFormdanOku();
+  geceListesi.push({ id: yeniId(), ad: '', repo: $('repoSec').value, istek: '', saat: 3, aktif: true });
+  geceCiz();
+};
+$('geceListe').onclick = async (e) => {
+  const sil = e.target.closest('[data-gsil]');
+  const simdi = e.target.closest('[data-simdi]');
+  if (!sil && !simdi) return;
+  geceFormdanOku();
+  if (sil) {
+    geceListesi.splice(+sil.dataset.gsil, 1);
+    geceCiz();
+    return;
+  }
+  const g = geceListesi[+simdi.dataset.simdi];
+  if (!g.istek) return alert('Önce ne yapacağını yaz.');
+  $('gece').hidden = true;
+  durdurYoklama();
+  oturum = yeniOturum({ baslik: `🌙 ${g.ad || 'Gece görevi'} · elle`, repo: g.repo });
+  oturum.gece = true;
+  try {
+    await gorevBaslat({ gh, depo, asistanRepo: ayar.asistanRepo, oturum, istek: g.istek });
+    yaz('sonOturum', oturum.id);
+    repoSeciciAyarla();
+    sohbetiCiz();
+    baslatYoklama();
+    listeyiYenile().catch(() => {});
+  } catch (err) {
+    alert('Başlatılamadı: ' + err.message);
+  }
+};
+$('geceKaydet').onclick = async () => {
+  geceFormdanOku();
+  const { gun, saat } = trSimdi();
+  try {
+    const eski = new Map((await depo.geceGorevleri()).map((g) => [g.id, g]));
+    for (const g of geceListesi) {
+      // Yeni ya da saati değişen görevin saati bugün zaten geçtiyse hemen değil yarın çalışsın
+      if (eski.get(g.id)?.saat !== g.saat && g.saat <= saat) g.sonGun = gun;
+    }
+    await depo.geceGorevleriYaz(geceListesi);
+    $('gece').hidden = true;
+  } catch (e) {
+    alert('Kaydedilemedi: ' + e.message);
+  }
+};
+$('geceKapat').onclick = () => { $('gece').hidden = true; };
+
+// ---------- Ayarlar ----------
+const modelGoster = (m) => (!m || m === OTOMATIK ? '' : m);
+function ayarlariAc() {
+  $('ghToken').value = ayar.ghToken;
+  $('hafizaRepo').value = ayar.hafizaRepo;
+  $('asistanRepo').value = ayar.asistanRepo;
+  $('model').value = modelGoster(ayar.model?.evren);
+  $('planModel').value = modelGoster(ayar.roller.planlayici?.model);
+  $('gozModel').value = modelGoster(ayar.roller.gozden?.model);
+  for (const k of ['planla', 'gozdenGecir', 'onayIste', 'ozDeg']) $(k).checked = ayar[k];
+  $('maksAdim').value = ayar.maksAdim;
+  $('ayarlar').hidden = false;
 }
 
 function formdanOku() {
   ayar.ghToken = $('ghToken').value.trim();
   ayar.hafizaRepo = $('hafizaRepo').value.trim();
-  ayar.onayIste = $('onayIste').checked;
-  ayar.ozDeg = $('ozDeg').checked;
-  ayar.planla = $('planla').checked;
-  ayar.gozdenGecir = $('gozdenGecir').checked;
-  ayar.maksAdim = Number($('maksAdim').value) || 40;
+  ayar.asistanRepo = $('asistanRepo').value.trim();
+  const m = (id) => $(id).value.trim() || OTOMATIK;
+  ayar.model = { ...ayar.model, evren: m('model') };
   ayar.roller = {
-    planlayici: { saglayici: $('planSag').value, model: $('planModel').value.trim() },
-    gozden: { saglayici: $('gozSag').value, model: $('gozModel').value.trim() },
+    planlayici: { saglayici: 'evren', model: m('planModel') },
+    gozden: { saglayici: 'evren', model: m('gozModel') },
   };
-  document.querySelectorAll('[data-anahtar]').forEach((el) => {
-    const id = el.dataset.anahtar;
-    const yeni = el.value.trim();
-    // Yeni anahtar girildiyse eski "ücretli/bakiye bitti" beklemesi geçersiz
-    if (yeni !== (ayar.anahtar[id] || '') && ayar.dinlen) delete ayar.dinlen[id];
-    ayar.anahtar[id] = yeni;
-  });
-  document.querySelectorAll('[data-model]').forEach((el) => { ayar.model[el.dataset.model] = el.value.trim(); });
+  for (const k of ['planla', 'gozdenGecir', 'onayIste', 'ozDeg']) ayar[k] = $(k).checked;
+  ayar.maksAdim = Number($('maksAdim').value) || 40;
+  yaz('ayar', ayar);
 }
 
-$('saglayicilar').onclick = async (e) => {
-  const b = e.target.closest('button');
-  if (!b) return;
-  formdanOku();
-  if (b.dataset.yukari) {
-    const i = +b.dataset.yukari;
-    [ayar.sira[i - 1], ayar.sira[i]] = [ayar.sira[i], ayar.sira[i - 1]];
-    saglayicilariCiz();
-  } else if (b.dataset.asagi) {
-    const i = +b.dataset.asagi;
-    [ayar.sira[i + 1], ayar.sira[i]] = [ayar.sira[i], ayar.sira[i + 1]];
-    saglayicilariCiz();
-  } else if (b.dataset.getir) {
-    const id = b.dataset.getir;
-    b.textContent = 'Getiriliyor…';
-    try {
-      const ids = await modelleriGetir(id, ayar.anahtar[id]);
-      $('liste-' + id).innerHTML = [OTOMATIK, ...ids].map((m) => `<option value="${kacis(m)}">`).join('');
-      b.textContent = `${ids.length} model bulundu — model kutusuna dokun`;
-    } catch (err) {
-      b.textContent = 'Hata: ' + err.message;
-    }
-  }
-};
-
-function ayarlariAc() {
-  $('ghToken').value = ayar.ghToken;
-  $('hafizaRepo').value = ayar.hafizaRepo;
-  $('onayIste').checked = ayar.onayIste;
-  $('ozDeg').checked = ayar.ozDeg;
-  $('planla').checked = ayar.planla;
-  $('gozdenGecir').checked = ayar.gozdenGecir;
-  $('maksAdim').value = ayar.maksAdim;
-  const secenekler = Object.entries(PROVIDERS).map(([id, p]) => `<option value="${id}">${p.ad}</option>`).join('');
-  for (const [rol, sec, inp] of [['planlayici', 'planSag', 'planModel'], ['gozden', 'gozSag', 'gozModel']]) {
-    $(sec).innerHTML = secenekler;
-    $(sec).value = ayar.roller[rol]?.saglayici || 'evren';
-    $(inp).value = ayar.roller[rol]?.model || OTOMATIK;
-  }
-  saglayicilariCiz();
-  $('ayarlar').hidden = false;
-}
 $('ayarBtn').onclick = ayarlariAc;
 $('ayarKapat').onclick = () => { $('ayarlar').hidden = true; };
-$('ayarKaydet').onclick = () => {
+$('ayarKaydet').onclick = async () => {
   formdanOku();
-  yaz('ayar', ayar);
   $('ayarlar').hidden = true;
-  repolariYukle();
+  try {
+    if (!depo || tokenFarkli()) await basla();
+    if (depo) {
+      // Bulut görevi aynı ayarlarla çalışsın; çalıştırıcının yazdığı alanlar (dinlen) korunur
+      const bulut = Object.fromEntries(BULUT_ALANLARI.map((k) => [k, ayar[k]]));
+      await depo.jsonGuncelle('ayarlar.json', (a) => ({ ...(a || {}), ...bulut }), 'ayarlar', {});
+    }
+  } catch (e) {
+    durumGoster('⚠ ' + e.message);
+  }
+};
+const tokenFarkli = () => gh?.token !== ayar.ghToken;
+
+$('modelGetir').onclick = async (e) => {
+  const b = e.target;
+  if (!depo) return;
+  b.textContent = 'Getiriliyor…';
+  const v = await depo.jsonOku('evren_modeller.json').catch(() => null);
+  if (!v?.modeller?.length) {
+    b.textContent = 'Liste henüz yok: ilk görev çalışınca bulut listeyi çeker';
+    return;
+  }
+  $('modelListe').innerHTML = [OTOMATIK, ...v.modeller].map((x) => `<option value="${kacis(x)}">`).join('');
+  b.textContent = `${v.modeller.length} model bulundu — model kutusuna dokun`;
+};
+
+$('bulutKontrol').onclick = async () => {
+  const kutu = $('bulutDurum');
+  formdanOku();
+  kutu.innerHTML = '<span class="not">Kontrol ediliyor…</span>';
+  const satir = (ok, metin) => `<div>${ok ? '✅' : '❌'} ${md(metin)}</div>`;
+  const sonuc = [];
+  try {
+    if (!depo || tokenFarkli()) await basla(true);
+    if (!depo) throw new Error('Önce GitHub token gir.');
+    sonuc.push(satir(true, 'GitHub token çalışıyor'));
+    sonuc.push(satir(true, `Gizli hafıza reposu: ${ayar.hafizaRepo}`));
+    const r = await gh.repoBilgi(ayar.asistanRepo);
+    if (!r) {
+      sonuc.push(satir(false, `${ayar.asistanRepo} bulunamadı`));
+    } else {
+      const [sahip, ad] = ayar.asistanRepo.split('/');
+      sonuc.push(satir(!r.private, r.private
+        ? `${ayar.asistanRepo} gizli: web sürümü için herkese açık olmalı. Ayarlar → en altta Change visibility: https://github.com/${ayar.asistanRepo}/settings`
+        : `Web sürümü: https://${sahip}.github.io/${ad}/`));
+      let adlar = null;
+      try { adlar = await gh.secretAdlari(ayar.asistanRepo); } catch { /* token'ın Secrets okuma izni olmayabilir */ }
+      const ekle = `https://github.com/${ayar.asistanRepo}/settings/secrets/actions/new`;
+      for (const [s, ne] of [['EVREN_ANAHTAR', 'EVREN API anahtarın'], ['ASISTAN_GH_TOKEN', 'bu GitHub token\'ın aynısı']]) {
+        if (adlar === null) sonuc.push(`<div>❔ ${md(`Secret \`${s}\` okunamadı (değeri: ${ne}). Yoksa ekle: ${ekle}`)}</div>`);
+        else sonuc.push(satir(adlar.includes(s), adlar.includes(s) ? `Secret ${s} tanımlı` : `Secret \`${s}\` eksik (değeri: ${ne}). Ekle: ${ekle}`));
+      }
+    }
+  } catch (e) {
+    sonuc.push(satir(false, e.message));
+  }
+  kutu.innerHTML = sonuc.join('');
 };
 
 // ---------- Dersler paneli ----------
 $('dersBtn').onclick = async () => {
-  if (!ayar.ghToken) return ayarlariAc();
-  const gh = new GitHub(ayar.ghToken);
+  if (!depo) return ayarlariAc();
   $('dersMetin').value = 'Yükleniyor…';
   $('dersler').hidden = false;
   try {
-    const h = new Hafiza(gh, await hafizaReposu(gh));
-    $('dersMetin').value = (await h.dersler()) || '# Asistanın dersleri\n';
+    $('dersMetin').value = (await new Hafiza(gh, ayar.hafizaRepo).dersler()) || '# Asistanın dersleri\n';
   } catch (e) {
     $('dersMetin').value = 'Hata: ' + e.message;
   }
 };
 $('dersKapat').onclick = () => { $('dersler').hidden = true; };
 $('dersKaydet').onclick = async () => {
-  const gh = new GitHub(ayar.ghToken);
   try {
-    const h = new Hafiza(gh, await hafizaReposu(gh));
-    await h.yenidenYaz($('dersMetin').value.trimEnd() + '\n');
+    await new Hafiza(gh, ayar.hafizaRepo).yenidenYaz($('dersMetin').value.trimEnd() + '\n');
     $('dersler').hidden = true;
   } catch (e) {
     $('dersMetin').value += '\n\nKaydedilemedi: ' + e.message;
@@ -372,25 +622,43 @@ function boyutla() {
 }
 $('giris').oninput = boyutla;
 $('gonder').onclick = gonder;
-$('yeniSohbet').onclick = () => {
-  if (calisiyor) return;
-  kayit = [];
-  yaz('sohbet', kayit);
-  $('sohbet').innerHTML = '';
-  hosgeldin();
-};
 
-function hosgeldin() {
-  if (kayit.length) return;
-  ekle({
-    rol: 'asistan',
-    metin: ayar.ghToken
-      ? 'Merhaba! Üstten bir repo seç ve ne yapmak istediğini yaz.'
-      : 'Merhaba! Başlamak için ⚙ Ayarlar\'dan GitHub token ve en az bir model anahtarı gir.',
-  }, false);
+// ---------- Eski sürümden taşıma ----------
+/** Bulut öncesi sürümde tek sohbet telefonda duruyordu; onu bir oturum olarak buluta taşı. */
+async function eskiSohbetiTasi() {
+  const eski = oku('sohbet', []);
+  if (!eski.length) return;
+  const o = yeniOturum({ baslik: 'Eski sohbet (telefondan taşındı)', repo: ayar.aktifRepo });
+  o.mesajlar = eski.map((m) => ({ ...m, zaman: Date.now() }));
+  o.durum = 'bitti';
+  await depo.oturumYaz(o);
+  localStorage.removeItem('sohbet');
 }
 
 // ---------- Başlat ----------
-kayit.forEach((m) => ekle(m, false));
-hosgeldin();
-repolariYukle();
+async function basla(sessiz = false) {
+  try {
+    if (!(await baglan())) {
+      sohbetiCiz();
+      return;
+    }
+    await eskiSohbetiTasi().catch(() => {});
+    await listeyiYenile();
+    repolariYukle();
+    const son = oku('sonOturum', '');
+    if (son && liste.some((x) => x.id === son)) await oturumAc(son);
+    else sohbetiCiz();
+  } catch (e) {
+    if (sessiz) throw e;
+    sohbetiCiz();
+    durumGoster('⚠ ' + e.message);
+  }
+}
+
+// Önce önbellekten anında göster, sonra buluttan tazele
+{
+  const son = oku('sonOturum', '');
+  oturum = son ? oku('oturum:' + son, null) : null;
+  sohbetiCiz();
+}
+basla();

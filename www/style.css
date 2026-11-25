@@ -168,3 +168,53 @@ footer button { background: var(--vurgu); border: none; color: #fff; font-size: 
 .rol small { color: var(--soluk); }
 .iki { display: flex; gap: 6px; margin-top: 6px; }
 .iki select { flex: 0 0 38%; }
+
+#oturumBaslik {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--soluk);
+  border-bottom: 1px solid var(--cizgi);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#durum a, #onayMetin a, .kutu a { color: #8ab4ff; word-break: break-all; }
+.bilgi-notu { align-self: center; font-size: 12px; color: var(--soluk); text-align: center; }
+
+.oturum-satir {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  margin: 6px 0;
+  border: 1px solid var(--cizgi);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.oturum-satir.secili { border-color: var(--vurgu); }
+.oturum-bilgi { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.oturum-bilgi b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oturum-bilgi small { color: var(--soluk); }
+.oturum-satir button { padding: 4px 9px; }
+
+.gece-gorev {
+  border: 1px solid var(--cizgi);
+  border-radius: 12px;
+  padding: 10px;
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gece-gorev .iki { margin: 0; align-items: center; }
+.gece-gorev .iki select { flex: 0 0 30%; }
+.gece-gorev .iki label.satir { flex: 1; margin: 0; }
+
+.kutu { background: #0006; border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+
+/* Web: geniş ekranda telefon genişliğinde ortala */
+@media (min-width: 820px) {
+  body { max-width: 780px; margin: 0 auto; border-left: 1px solid var(--cizgi); border-right: 1px solid var(--cizgi); }
+  .panel-ic { max-width: 780px; margin: 0 auto; }
+  .panel { justify-content: center; }
+}

@@ -34,6 +34,8 @@ export class GitHub {
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
+      // Oturum dosyaları sık yoklanıyor; tarayıcı önbelleği 60 sn eski veri gösterebilir
+      cache: 'no-store',
     });
     const metin = await r.text();
     if (!r.ok) {
@@ -172,12 +174,31 @@ export class GitHub {
     return ciktilar;
   }
 
-  async calismaBaslat(repo, workflowDosyasi, dal) {
+  async calismaBaslat(repo, workflowDosyasi, dal, girdiler) {
     dal = dal || (await this.varsayilanDal(repo));
     await this.istek(`/repos/${repo}/actions/workflows/${encodeURIComponent(workflowDosyasi)}/dispatches`, {
       method: 'POST',
-      body: { ref: dal },
+      body: { ref: dal, ...(girdiler ? { inputs: girdiler } : {}) },
     });
     return 'Başlatıldı';
+  }
+
+  async repoBilgi(repo) {
+    try {
+      return await this.istek(`/repos/${repo}`);
+    } catch (e) {
+      if (e.status === 404) return null;
+      throw e;
+    }
+  }
+
+  /** Gizli hafıza reposu yoksa oluşturmayı dener (token'ın Administration izni varsa olur). */
+  async ozelRepoOlustur(ad, aciklama) {
+    return this.istek('/user/repos', { method: 'POST', body: { name: ad, private: true, auto_init: true, description: aciklama } });
+  }
+
+  async secretAdlari(repo) {
+    const r = await this.istek(`/repos/${repo}/actions/secrets?per_page=100`);
+    return r.secrets.map((x) => x.name);
   }
 }

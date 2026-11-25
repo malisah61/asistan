@@ -1,0 +1,42 @@
+name: Görev
+
+# Asistan görevleri bulutta çalışır: uygulama/web kapansa da sürer.
+#  - workflow_dispatch: uygulama bir oturumu başlatır (girdi: oturum id)
+#  - schedule: her saat saati gelen gece görevlerine bakar
+# Repo açık olduğu için loglar da açık; calistir.mjs içerik yazmaz.
+
+on:
+  workflow_dispatch:
+    inputs:
+      oturum:
+        description: Oturum kimliği (boşsa gece görevleri)
+        required: false
+  schedule:
+    - cron: '7 * * * *'
+
+concurrency:
+  group: gorev-${{ github.event.inputs.oturum || 'gece' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  calis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Asistan
+        run: node bulut/calistir.mjs
+        env:
+          GH_TOKEN: ${{ secrets.ASISTAN_GH_TOKEN }}
+          EVREN_ANAHTAR: ${{ secrets.EVREN_ANAHTAR }}
+          HAFIZA_REPO: ${{ vars.HAFIZA_REPO }}
+          OTURUM: ${{ github.event.inputs.oturum }}
+          KOSU_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
