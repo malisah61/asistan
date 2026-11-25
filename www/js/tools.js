@@ -221,8 +221,15 @@ export async function calistir(ad, arg, ctx) {
   switch (ad) {
     case 'repolari_listele':
       return JSON.stringify(await gh.repolar());
-    case 'repo_haritasi':
-      return await repoHaritasi(gh, arg.repo, arg.dal, { durum: ctx.durum });
+    case 'repo_haritasi': {
+      // Planlayıcı haritayı zaten çekti; ajan aynı haritayı tekrar isterse GitHub'a gitmeden ver
+      const anahtar = `${arg.repo}#${arg.dal || ''}`;
+      ctx.gorev.haritaOnbellek = ctx.gorev.haritaOnbellek || {};
+      if (ctx.gorev.haritaOnbellek[anahtar]) return ctx.gorev.haritaOnbellek[anahtar];
+      const harita = await repoHaritasi(gh, arg.repo, arg.dal, { durum: ctx.durum });
+      ctx.gorev.haritaOnbellek[anahtar] = harita;
+      return harita;
+    }
     case 'dosya_agaci': {
       const onek = (arg.klasor || '').replace(/^\/+/, '');
       const liste = (await gh.agac(arg.repo, arg.dal)).filter((d) => !onek || d.startsWith(onek));
