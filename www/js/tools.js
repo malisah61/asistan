@@ -536,7 +536,7 @@ const WEB_PARCA = 9000;
 const ortamDegiskenleri = () => globalThis.process?.env || {};
 
 const varlikCoz = (s) => s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-  .replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+  .replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&nbsp;/g, ' ').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/\s+/g, ' ').trim();
 
 /** Bing sonuç sayfasını ayrıştırır (anahtar gerekmez; GitHub sunucularından erişilebiliyor). */
 export function bingAyristir(html) {
