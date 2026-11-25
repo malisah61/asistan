@@ -8,6 +8,7 @@ on:
       - 'AGENTS.md'
       - 'README.md'
       - 'bulut/**'
+      - 'kuyruk/**'
       - '.github/workflows/gorev.yml'
       - '.github/workflows/pages.yml'
   workflow_dispatch:

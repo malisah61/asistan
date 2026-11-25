@@ -2,6 +2,7 @@ name: Görev
 
 # Asistan görevleri bulutta çalışır: uygulama/web kapansa da sürer.
 #  - workflow_dispatch: uygulama bir oturumu başlatır (girdi: oturum id)
+#  - push (kuyruk/istek.json): web sürümü workflow_dispatch'i CORS yüzünden çağıramayınca bu dosyayı yazar
 #  - schedule: her saat saati gelen gece görevlerine bakar
 # Repo açık olduğu için loglar da açık; calistir.mjs içerik yazmaz.
 
@@ -11,11 +12,14 @@ on:
       oturum:
         description: Oturum kimliği (boşsa gece görevleri)
         required: false
+  push:
+    branches: [main]
+    paths: ['kuyruk/**']
   schedule:
     - cron: '7 * * * *'
 
 concurrency:
-  group: gorev-${{ github.event.inputs.oturum || 'gece' }}
+  group: gorev-${{ github.event.inputs.oturum || (github.event_name == 'push' && github.sha) || 'gece' }}
   cancel-in-progress: false
 
 permissions:
@@ -32,11 +36,20 @@ jobs:
         with:
           node-version: 22
 
+      - name: Oturum
+        id: oturum
+        env:
+          GIRDI: ${{ github.event.inputs.oturum }}
+          OLAY: ${{ github.event_name }}
+        run: |
+          if [ "$OLAY" = "push" ]; then GIRDI=$(jq -r '.oturum // empty' kuyruk/istek.json); fi
+          echo "id=$GIRDI" >> "$GITHUB_OUTPUT"
+
       - name: Asistan
         run: node bulut/calistir.mjs
         env:
           GH_TOKEN: ${{ secrets.ASISTAN_GH_TOKEN }}
           EVREN_ANAHTAR: ${{ secrets.EVREN_ANAHTAR }}
           HAFIZA_REPO: ${{ vars.HAFIZA_REPO }}
-          OTURUM: ${{ github.event.inputs.oturum }}
+          OTURUM: ${{ steps.oturum.outputs.id }}
           KOSU_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

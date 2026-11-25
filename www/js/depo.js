@@ -10,6 +10,7 @@
 
 export const HAFIZA_REPO_ADI = 'asistan-hafiza';
 export const GOREV_WORKFLOW = 'gorev.yml';
+export const KUYRUK_DOSYASI = 'kuyruk/istek.json';
 export const CALISAN_DURUMLAR = new Set(['kuyrukta', 'calisiyor']);
 const MAKS_MESAJ = 300;
 // GitHub aynı dosyaya eşzamanlı yazımda 409 verir; tazeleyip tekrar denenir
@@ -149,7 +150,14 @@ export async function gorevBaslat({ gh, depo, asistanRepo, oturum, istek }) {
   oturum.soru = null;
   await depo.sil(`oturumlar/${oturum.id}.dur`, 'eski durdurma işareti');
   await depo.oturumYaz(oturum);
-  await gh.calismaBaslat(asistanRepo, GOREV_WORKFLOW, null, { oturum: oturum.id });
+  try {
+    await gh.calismaBaslat(asistanRepo, GOREV_WORKFLOW, null, { oturum: oturum.id });
+  } catch {
+    // Tarayıcıdan workflow başlatma isteği CORS'a takılabiliyor (web sürümü).
+    // Dosya yazmak her yerde çalışıyor: asistan reposuna kuyruk dosyası yazılınca gorev.yml push ile başlar.
+    // Dosyada yalnızca oturum kimliği var; repo açık olsa da içerik görünmez.
+    await new Depo(gh, asistanRepo).jsonYaz(KUYRUK_DOSYASI, { oturum: oturum.id, zaman: Date.now() }, 'kuyruk: yeni görev');
+  }
 }
 
 export function yeniOturum({ baslik, repo }) {
