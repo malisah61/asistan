@@ -64,12 +64,17 @@ export const ARACLAR = [
   fn('claudea_devret', 'Üç denemede de çözemediğin ya da senin için fazla zor bir işi Claude\'a devreder: repoda "claude" etiketli issue açar. Gece çalışan görev bunu çözer.',
     { repo: S('sahip/repo'), baslik: S('kısa başlık'), aciklama: S('istenen iş, denediklerin, son hata, ilgili dosyalar, varsa dal adı') },
     ['repo', 'baslik', 'aciklama']),
+  fn('gorsel_goster', 'Bir repodaki görseli (png/jpg/webp/gif) sohbette kullanıcıya gösterir. Ürettiğin ya da değiştirdiğin görselleri, önce/sonra karşılaştırmalarını mutlaka göster. Birden çok görsel için ayrı ayrı çağır.',
+    { repo: S('sahip/repo'), yol: S('görselin yolu'), dal: S('dal (isteğe bağlı, örn. deneme-sonuclari)'), aciklama: S('görselin altına yazılacak kısa açıklama, örn. "Yeni Bakkal Hasan"') },
+    ['repo', 'yol']),
   fn('ders_ekle', 'Gelecekte daha iyi çalışmak için kalıcı bir ders kaydeder (hata, çözüm, kullanıcı tercihi). Kısa ve genel yaz.',
     { ders: S('tek cümlelik ders'), kapsam: { type: 'string', enum: ['genel', 'repo'], description: 'genel: her işte geçerli; repo: yalnızca bu repoya özgü' }, etiketler: { type: 'array', items: { type: 'string' }, description: 'örn. ["godot","csharp"]' }, repo: S('kapsam repo ise sahip/repo') },
     ['ders']),
 ];
 
 export const ARAC_ADLARI = new Set(ARACLAR.map((a) => a.function.name));
+
+const GORSEL_UZANTI = /\.(png|jpe?g|webp|gif)$/i;
 
 // Yan etkisi olmayan araçlar: aynı yanıttaki birden çok çağrı paralel çalıştırılabilir
 export const OKUMA = new Set(['repolari_listele', 'repo_haritasi', 'dosya_agaci', 'dosya_oku', 'kod_ara', 'actions_durum', 'actions_hata']);
@@ -299,6 +304,12 @@ export async function calistir(ad, arg, ctx) {
         await gh.dosyaYaz(hafiza.repo, yol, liste, 'hafıza: yeni devir');
       } catch { /* issue açıldı; liste yazılamasa da gece görevi issue'yu bulabilir */ }
       return `Devredildi: ${url}. Kullanıcıya bunu bildir ve görevi bitir.`;
+    }
+    case 'gorsel_goster': {
+      if (!GORSEL_UZANTI.test(arg.yol || '')) return 'HATA: yalnızca png, jpg, jpeg, webp ya da gif gösterilebilir.';
+      if (!(await gh.sha(arg.repo, arg.yol, arg.dal))) return `HATA: ${arg.repo}/${arg.yol} bulunamadı${arg.dal ? ` (${arg.dal} dalında)` : ''}. dosya_agaci ile doğru yolu bul.`;
+      ctx.gorsel?.({ repo: arg.repo, yol: arg.yol, dal: arg.dal || '', aciklama: arg.aciklama || '' });
+      return 'Görsel sohbete eklendi; kullanıcı görüyor. Raporunda ayrıca linkini vermene gerek yok.';
     }
     case 'ders_ekle':
       await hafiza.dersEkle(arg.ders, { kapsam: arg.kapsam, etiketler: arg.etiketler, repo: arg.repo || ctx.aktifRepo });

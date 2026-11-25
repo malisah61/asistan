@@ -218,6 +218,10 @@ async function oturumCalistir({ gh, depo, hafiza, ayar, id, gece = false }) {
         },
         plan: (m) => { o.plan = m.map((x) => ({ ...x })); sonraKaydet(); },
         durdurulduMu,
+        gorsel: (g) => {
+          o.mesajlar.push({ rol: 'gorsel', ...g, zaman: Date.now() });
+          sonraKaydet();
+        },
         arac: (ad, arg, s, sure) => {
           o.mesajlar.push({ rol: 'arac', ad, arg: JSON.stringify(arg, null, 1).slice(0, 3000), sonuc: String(s).slice(0, 3000), sure, zaman: Date.now() });
           sonraKaydet();

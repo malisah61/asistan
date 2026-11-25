@@ -73,6 +73,20 @@ export class GitHub {
     return { sha: r.sha, icerik: r.content ? b64Decode(r.content) : await this.istek(r.download_url, { ham: true }) };
   }
 
+  /** Görseli tarayıcıda gösterilecek URL olarak getirir (gizli repolar dahil; token ile). */
+  async gorselUrl(repo, yol, dal) {
+    const q = dal ? `?ref=${encodeURIComponent(dal)}` : '';
+    const r = await this.istek(`/repos/${repo}/contents/${encodeURI(yol)}${q}`);
+    const tur = /\.png$/i.test(yol) ? 'image/png' : /\.gif$/i.test(yol) ? 'image/gif' : /\.webp$/i.test(yol) ? 'image/webp' : 'image/jpeg';
+    // 1 MB altı dosyalar JSON içinde base64 gelir; bu yol uygulamada da tarayıcıda da güvenle çalışır
+    if (r.content) return `data:${tur};base64,${r.content.replace(/\n/g, '')}`;
+    const ham = await fetch(`${API}/repos/${repo}/contents/${encodeURI(yol)}${q}`, {
+      headers: { Authorization: `Bearer ${this.token}`, Accept: 'application/vnd.github.raw', 'X-GitHub-Api-Version': '2022-11-28' },
+    });
+    if (!ham.ok) throw new Error(`GitHub ${ham.status}`);
+    return URL.createObjectURL(await ham.blob());
+  }
+
   async sha(repo, yol, dal) {
     try {
       return (await this.dosyaOku(repo, yol, dal)).sha;

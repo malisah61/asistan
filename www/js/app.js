@@ -70,9 +70,11 @@ function md(s) {
   return parcalar.map((p, i) => {
     if (i % 2) return `<pre>${kacis(p.replace(/^\w*\n/, ''))}</pre>`;
     return kacis(p)
+      // ![açıklama](https://...) → görsel (yalnızca herkese açık adresler; gizli repo görselleri gorsel mesajıyla gelir)
+      .replace(/!\[([^\]]*)\]\((https:\/\/[^\s)]+)\)/g, '<img class="md-gorsel" src="$2" alt="$1" loading="lazy" />')
       .replace(/`([^`\n]+)`/g, '<code>$1</code>')
       .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
-      .replace(/(https?:\/\/[^\s)<]+)/g, '<a href="$1" target="_blank">$1</a>');
+      .replace(/(^|[^"])(https?:\/\/[^\s)<"]+)/g, '$1<a href="$2" target="_blank">$2</a>');
   }).join('');
 }
 function once(t) {
@@ -85,7 +87,39 @@ function once(t) {
 const DURUM_IKON = { kuyrukta: '⏳', calisiyor: '⚙️', bitti: '✓', hata: '⚠', durduruldu: '■', bos: '' };
 
 // ---------- Sohbet görünümü ----------
+// Görseller her yoklamada yeniden çizilmesin diye bir kez indirilip saklanır
+const gorselOnbellek = new Map();
+
+function gorselCiz(m) {
+  const kutu = document.createElement('figure');
+  kutu.className = 'gorsel';
+  const img = document.createElement('img');
+  img.alt = m.aciklama || m.yol;
+  const alt = document.createElement('figcaption');
+  const link = `https://github.com/${m.repo}/blob/${m.dal || 'HEAD'}/${m.yol}`;
+  alt.innerHTML = `${kacis(m.aciklama || m.yol.split('/').pop())} · <a href="${kacis(link)}" target="_blank">GitHub'da aç</a>`;
+  kutu.append(img, alt);
+  const anahtar = `${m.repo}#${m.dal}#${m.yol}`;
+  let iste = gorselOnbellek.get(anahtar);
+  if (!iste && gh) {
+    iste = gh.gorselUrl(m.repo, m.yol, m.dal);
+    gorselOnbellek.set(anahtar, iste);
+    iste.catch(() => gorselOnbellek.delete(anahtar));
+  }
+  if (!iste) {
+    alt.insertAdjacentText('afterbegin', '(yükleniyor) ');
+  } else {
+    iste.then((url) => {
+      img.src = url;
+      // Dokununca tam boyutta aç
+      img.onclick = () => window.open(url, '_blank');
+    }, (e) => { alt.insertAdjacentText('afterbegin', `⚠ yüklenemedi (${e.message}) · `); });
+  }
+  return kutu;
+}
+
 function mesajCiz(m) {
+  if (m.rol === 'gorsel') return gorselCiz(m);
   if (m.rol === 'arac') {
     const d = document.createElement('details');
     d.className = 'arac';

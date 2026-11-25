@@ -129,6 +129,10 @@ async function sistemMesaji(hafiza, aktifRepo, gh, istek) {
     'Başka bir sistemi (workflow, API) çağırmadan önce tanımını oku; girdilerini açıkça ver, varsayılana güvenme.',
     'Para harcayabilen (GPU üretimi, yayın) ya da aktif repo dışındaki işlemler için kullanıcı onayı gerekir; bunu atlatmaya çalışma.',
     '',
+    '## Görsel ve link paylaşımı',
+    'Görselle ilgili bir iş yaptıysan (üretim, sprite, ikon, ekran görüntüsü) sonucu gorsel_goster ile sohbete ekle; mümkünse eskisini de göster ki karşılaştırılsın.',
+    'PR, commit, Actions çalışması ve dosyalar için tam linki (https://github.com/...) yaz; kullanıcı tek dokunuşla açabilsin.',
+    '',
     '## Son rapor biçimi (2–6 kısa satır)',
     '**Ne değişti:** … · **Nerede:** PR/commit linki · **Nasıl test edildi:** … (test edemediğini açıkça yaz) · **Senden gereken:** … (yoksa yazma)',
     'İstenip YAPILMAYAN ya da atlanan bir şey varsa (ör. 12 dosyadan 4\'ü) mutlaka söyle. Yapmadığını yapılmış gibi anlatma.',
@@ -252,7 +256,7 @@ const AG_BEKLEME = 30_000;
 export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek, ui, onceki }) {
   const gorev = { istek, plan: [], sonSha: {}, kontrolHata: 0, gunluk: [], basla: Date.now(), aracSure: 0 };
   olcum.sifirla();
-  const ctx = { gh, hafiza, ayar, aktifRepo, gorev, onayla: ui.onayla, durum: ui.durum, durdurulduMu: ui.durdurulduMu, plan: ui.plan };
+  const ctx = { gh, hafiza, ayar, aktifRepo, gorev, onayla: ui.onayla, durum: ui.durum, durdurulduMu: ui.durdurulduMu, plan: ui.plan, gorsel: ui.gorsel };
 
   const sistem = await sistemMesaji(hafiza, aktifRepo, gh, istek);
   const mesajlar = [{ role: 'system', content: sistem }, ...gecmis.slice(-12)];
