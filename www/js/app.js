@@ -1,4 +1,4 @@
-import { PROVIDERS, OTOMATIK, modelleriGetir } from './llm.js';
+import { PROVIDERS, OTOMATIK, modelleriGetir, sartOnayiAyarla } from './llm.js';
 import { GitHub } from './github.js';
 import { Hafiza, gorevCalistir, ozDegerlendir } from './agent.js';
 
@@ -17,7 +17,7 @@ const VARSAYILAN = {
   hafizaRepo: '',
   anahtar: {},
   model: {},
-  sira: ['gemini', 'openrouter', 'groq'],
+  sira: ['evren', 'gemini', 'openrouter', 'groq'],
   onayIste: true,
   ozDeg: true,
   planla: true,
@@ -31,6 +31,10 @@ const VARSAYILAN = {
 };
 let ayar = { ...VARSAYILAN, ...oku('ayar', {}) };
 ayar.roller = { ...VARSAYILAN.roller, ...(ayar.roller || {}) };
+// Sonradan eklenen sağlayıcılar eski kayıtlı sırada yok; EVREN varsayılan motor olduğu için en başa
+for (const id of Object.keys(PROVIDERS)) {
+  if (!ayar.sira.includes(id)) ayar.sira = id === 'evren' ? [id, ...ayar.sira] : [...ayar.sira, id];
+}
 let kayit = oku('sohbet', []); // [{rol, metin, ...}]
 let calisiyor = false;
 let durdur = false;
@@ -120,6 +124,31 @@ function onayla(ad, ozet) {
     $('onayHayir').onclick = () => bitir(false);
   });
 }
+
+// EVREN gibi sağlayıcılar ilk istekte kullanım şartlarının onaylanmasını ister (tek seferlik)
+function sartlariGoster({ saglayici, mesaj, adres, surum }) {
+  return new Promise((coz) => {
+    $('onayBaslik').textContent = `${saglayici} kullanım şartları`;
+    $('onayMetin').innerHTML = md(
+      `${saglayici} kullanmaya başlamadan önce kullanım şartlarını onaylamanı istiyor (sürüm ${surum}).\n\n` +
+      (mesaj ? mesaj + '\n\n' : '') +
+      (adres ? `Şartları oku: ${adres}\n\n` : '') +
+      'Kabul edersen bu bir kez sunucuya bildirilir ve bir daha sorulmaz. Reddedersen diğer sağlayıcılarla devam edilir.');
+    const evet = $('onayEvet');
+    const eskiMetin = evet.textContent;
+    evet.textContent = 'Kabul ediyorum';
+    $('onay').hidden = false;
+    const bitir = (v) => {
+      $('onay').hidden = true;
+      evet.textContent = eskiMetin;
+      evet.onclick = $('onayHayir').onclick = null;
+      coz(v);
+    };
+    evet.onclick = () => bitir(true);
+    $('onayHayir').onclick = () => bitir(false);
+  });
+}
+sartOnayiAyarla(sartlariGoster);
 
 // ---------- Görev ----------
 async function gonder() {
@@ -220,7 +249,8 @@ function saglayicilariCiz() {
         <button data-yukari="${i}" ${i === 0 ? 'disabled' : ''}>▲</button>
         <button data-asagi="${i}" ${i === ayar.sira.length - 1 ? 'disabled' : ''}>▼</button>
       </div>
-      <label>API anahtarı <a href="${p.anahtarSayfasi}">(anahtar al)</a>
+      ${p.not ? `<small class="not">${kacis(p.not)}</small>` : ''}
+      <label>API anahtarı ${p.anahtarSayfasi ? `<a href="${p.anahtarSayfasi}">(anahtar al)</a>` : ''}
         <input type="password" data-anahtar="${id}" value="${kacis(ayar.anahtar[id] || '')}" autocomplete="off" />
       </label>
       <label>Model
@@ -244,7 +274,13 @@ function formdanOku() {
     planlayici: { saglayici: $('planSag').value, model: $('planModel').value.trim() },
     gozden: { saglayici: $('gozSag').value, model: $('gozModel').value.trim() },
   };
-  document.querySelectorAll('[data-anahtar]').forEach((el) => { ayar.anahtar[el.dataset.anahtar] = el.value.trim(); });
+  document.querySelectorAll('[data-anahtar]').forEach((el) => {
+    const id = el.dataset.anahtar;
+    const yeni = el.value.trim();
+    // Yeni anahtar girildiyse eski "ücretli/bakiye bitti" beklemesi geçersiz
+    if (yeni !== (ayar.anahtar[id] || '') && ayar.dinlen) delete ayar.dinlen[id];
+    ayar.anahtar[id] = yeni;
+  });
   document.querySelectorAll('[data-model]').forEach((el) => { ayar.model[el.dataset.model] = el.value.trim(); });
 }
 

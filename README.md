@@ -2,7 +2,7 @@
 
 Telefonda çalışan bir kodlama asistanı. GitHub repolarını okuyup yazabiliyor, dal ve PR açabiliyor, Actions build'lerini kontrol edebiliyor. Her işten sonra kendine ders çıkarıyor.
 
-- **Beyin:** Gemini, OpenRouter ve Groq'un ücretsiz modelleri. Birinin limiti dolunca otomatik olarak sıradakine geçiyor.
+- **Beyin:** Ana motor **EVREN** (SSB'nin yapay zeka platformu; `deepseek-v4.1-flash`, yedeği `glm-5.3`). EVREN hata verir, kotası dolar ya da ücretli hale gelirse Gemini, OpenRouter ve Groq'un ücretsiz modellerine otomatik geçiyor.
 - **Stil:** `AGENTS.md`. Asistan her görevde bunu okuyor, değiştirmek için yeni APK gerekmiyor.
 - **Gücü artıran düzen:**
   1. *Geri bildirim döngüsü:* her commit'ten sonra Actions'ı bekler (`kontrol.yml` yoksa kendisi ekler), hata varsa logu okuyup en fazla 3 kez düzeltir.
@@ -29,6 +29,7 @@ github.com → Settings → Developer settings → **Personal access tokens → 
 ### 3. Model anahtarları (hepsi ücretsiz)
 | Sağlayıcı | Nereden | Not |
 |---|---|---|
+| EVREN | SSB'den aldığın anahtar | Ücretsiz dönem 1 Aralık 2026'da bitiyor. İlk istekte kullanım şartlarını onaylaman istenir (tek seferlik) |
 | Gemini | aistudio.google.com/apikey | **Billing açma**, açarsan ücretli olur |
 | OpenRouter | openrouter.ai/keys | Yalnızca `:free` ile biten modeller ücretsiz |
 | Groq | console.groq.com/keys | Çok hızlı |

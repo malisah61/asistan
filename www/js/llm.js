@@ -2,6 +2,15 @@
 // Bir sağlayıcının limiti dolunca (429) ya da hata verince sıradakine geçilir.
 
 export const PROVIDERS = {
+  evren: {
+    ad: 'EVREN',
+    url: 'https://evren-llmapi.ssyz.org.tr/v1',
+    // Liste alınamazsa (ör. şartlar henüz onaylanmadı) bu modelle doğrudan denenir
+    anaModel: 'deepseek-v4.1-flash',
+    // Ana model hata verirse diğer sağlayıcılara geçmeden önce bu denenir
+    yedekModel: 'glm-5.3',
+    not: "SSB'nin yapay zeka platformu. Ücretsiz dönem 1 Aralık 2026'da bitiyor; ücretli olunca ya da kota dolunca otomatik olarak sıradakine geçer.",
+  },
   gemini: {
     ad: 'Gemini',
     url: 'https://generativelanguage.googleapis.com/v1beta/openai',
@@ -27,6 +36,45 @@ export const OTOMATIK = 'otomatik';
 const bekleme = {}; // id ya da id:model -> zaman damgası (ms)
 const listeOnbellek = {}; // id -> { zaman, modeller }
 
+// Ücret/bakiye hatası kısa sürede düzelmez; sağlayıcıyı uzun süre atla (ayar.dinlen'de kalıcı tutulur)
+const UCRETLI_BEKLEME = 6 * 60 * 60_000;
+const KOTA_BEKLEME = 60_000;
+const VARSAYILAN_SART_SURUMU = 1;
+
+// Kullanım şartları onayını arayüz sorar; llm.js'in ekrana erişimi yok
+let sartOnayiSor = async () => false;
+export function sartOnayiAyarla(fn) {
+  sartOnayiSor = fn;
+}
+
+const sartlarKabulEdilmediMi = (metin) => /terms_not_accepted/i.test(metin);
+// "quota" kelimesi tek başına yetmez: Gemini dakikalık limitte de "quota" der
+const ucretliMi = (status, metin) => status === 402 ||
+  ([400, 403, 429].includes(status) && /payment|billing|insufficient|credit|balance|subscription|paid plan|free (tier|period).*(ended|expired)/i.test(metin));
+
+function sartBilgisi(metin) {
+  const v = jsonOnar(metin) || {};
+  const e = (typeof v.error === 'object' && v.error) || v;
+  return {
+    mesaj: e.message || e.detail || (typeof v.error === 'string' ? v.error : '') || '',
+    adres: (String(metin).match(/https?:\/\/[^\s"'<>\\]+/) || [])[0] || '',
+    surum: Number(e.terms_version ?? e.version ?? v.terms_version) || VARSAYILAN_SART_SURUMU,
+  };
+}
+
+/** Şartları kullanıcıya gösterir, onaylarsa sunucuya bildirir. Onaylandıysa true. */
+async function sartlariOnayla(id, key, metin) {
+  const bilgi = sartBilgisi(metin);
+  if (!(await sartOnayiSor({ saglayici: PROVIDERS[id].ad, ...bilgi }))) return false;
+  const r = await fetch(`${PROVIDERS[id].url}/terms/accept`, {
+    method: 'POST',
+    headers: headers(id, key),
+    body: JSON.stringify({ version: bilgi.surum }),
+  });
+  if (!r.ok) throw new Error(`şart onayı gönderilemedi: HTTP ${r.status} ${(await r.text()).slice(0, 150)}`);
+  return true;
+}
+
 function headers(id, key) {
   const h = { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` };
   if (id === 'openrouter') {
@@ -45,8 +93,15 @@ export async function modelleriGetir(id, key, { tazele = false } = {}) {
   const o = listeOnbellek[id];
   if (!tazele && o && Date.now() - o.zaman < 30 * 60_000) return o.modeller;
   const p = PROVIDERS[id];
-  const r = await fetch(`${p.url}/models`, { headers: headers(id, key) });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  let r = await fetch(`${p.url}/models`, { headers: headers(id, key) });
+  if (!r.ok) {
+    const metin = await r.text();
+    if (sartlarKabulEdilmediMi(metin)) {
+      if (!(await sartlariOnayla(id, key, metin))) throw new Error('kullanım şartları onaylanmadı');
+      r = await fetch(`${p.url}/models`, { headers: headers(id, key) });
+    }
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  }
   const veri = await r.json();
   let liste = veri.data || veri.models || [];
   if (id === 'openrouter') {
@@ -70,7 +125,16 @@ export function enIyiModel(id, modeller, tur = 'hizli') {
   let adaylar = modeller;
   let puan = () => 0;
 
-  if (id === 'gemini') {
+  if (id === 'evren') {
+    adaylar = modeller.filter((m) => !/embed|whisper|tts|rerank|guard|vision|image/i.test(m));
+    const p = PROVIDERS.evren;
+    const sira = [(m) => m === p.anaModel, (m) => m === p.yedekModel, /deepseek/, /glm/, /qwen.*coder/, /qwen/, /kimi/]
+      .map((k) => (typeof k === 'function' ? k : (m) => k.test(m)));
+    puan = (m) => {
+      const i = sira.findIndex((f) => f(m));
+      return (i < 0 ? 0 : 100 - i * 10) + Math.min(surum(m), 9);
+    };
+  } else if (id === 'gemini') {
     adaylar = modeller.filter((m) => /^gemini-\d/.test(m) &&
       !/lite|image|tts|audio|live|embed|vision|native|computer|robotics|learnlm|aqa/i.test(m));
     puan = (m) => surum(m) * 100 +
@@ -102,7 +166,14 @@ const aracHatasiMi = (status, metin) => status === 400 && /tool call validation|
 async function modelCoz(ayar, id, rol) {
   const istenen = rol ? ayar.roller?.[rol]?.model : ayar.model?.[id];
   if (istenen && istenen !== OTOMATIK) return istenen;
-  const secilen = enIyiModel(id, await modelleriGetir(id, ayar.anahtar[id]), rol ? 'guclu' : 'hizli');
+  let liste;
+  try {
+    liste = await modelleriGetir(id, ayar.anahtar[id]);
+  } catch (e) {
+    if (PROVIDERS[id].anaModel) return PROVIDERS[id].anaModel;
+    throw e;
+  }
+  const secilen = enIyiModel(id, liste, rol ? 'guclu' : 'hizli');
   if (!secilen) throw new Error('uygun model bulunamadı');
   return secilen;
 }
@@ -126,10 +197,11 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
   const hatalar = [];
   let aracHatasi = '';
   const simdi = Date.now();
+  const dinleniyor = (id) => bekleme[id] > simdi || ayar.dinlen?.[id] > simdi;
   // Önce dinlenmeyenler, sonra (hepsi doluysa) dinlenenler
   const sirali = [
-    ...liste.filter((id) => !(bekleme[id] > simdi)),
-    ...liste.filter((id) => bekleme[id] > simdi),
+    ...liste.filter((id) => !dinleniyor(id)),
+    ...liste.filter(dinleniyor),
   ].map((id) => ({ id }));
 
   const t = rol && ayar.roller?.[rol];
@@ -141,13 +213,18 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
     const { id } = aday;
     const p = PROVIDERS[id];
     let model;
-    // Model kalkmışsa listeden yenisini seçip bir kez daha dene
-    for (let deneme = 0; deneme < 2; deneme++) {
-      try {
-        model = await modelCoz(ayar, id, aday.rol);
-      } catch (e) {
-        hatalar.push(`${p.ad}: model listesi alınamadı (${e.message})`);
-        break;
+    let sartDenendi = false;
+    let modelYenilendi = false;
+    let yedekte = false;
+    // Her biri en fazla bir kez: şart onayı, kalkmış modelin yenisi, yedek model
+    for (let deneme = 0; deneme < 4; deneme++) {
+      if (!yedekte) {
+        try {
+          model = await modelCoz(ayar, id, aday.rol);
+        } catch (e) {
+          hatalar.push(`${p.ad}: model listesi alınamadı (${e.message})`);
+          break;
+        }
       }
       durum(`${p.ad} (${model}) ${rol === 'planlayici' ? 'plan yapıyor' : rol === 'gozden' ? 'gözden geçiriyor' : 'düşünüyor'}…`);
       try {
@@ -163,7 +240,22 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
         });
         const metin = await r.text();
         if (!r.ok) {
-          if (deneme === 0 && modelYokMu(r.status, metin)) {
+          if (!sartDenendi && sartlarKabulEdilmediMi(metin)) {
+            sartDenendi = true;
+            durum(`${p.ad} kullanım şartlarını onaylaman gerekiyor…`);
+            if (await sartlariOnayla(id, ayar.anahtar[id], metin)) continue;
+            hatalar.push(`${p.ad}: kullanım şartları onaylanmadı`);
+            break;
+          }
+          if (ucretliMi(r.status, metin)) {
+            ayar.dinlen = { ...(ayar.dinlen || {}), [id]: Date.now() + UCRETLI_BEKLEME };
+            ayar.degisti = true;
+            durum(`${p.ad} ücretli olmuş ya da bakiye bitmiş, diğer sağlayıcıya geçiliyor…`);
+            hatalar.push(`${p.ad} (${model}): ücret/bakiye hatası HTTP ${r.status} ${metin.slice(0, 150)}`);
+            break;
+          }
+          if (!modelYenilendi && !yedekte && modelYokMu(r.status, metin)) {
+            modelYenilendi = true;
             const yeni = enIyiModel(id, (await modelleriGetir(id, ayar.anahtar[id], { tazele: true })).filter((m) => m !== model), aday.rol ? 'guclu' : 'hizli');
             if (yeni) {
               modelKaydet(ayar, id, aday.rol, yeni);
@@ -172,8 +264,16 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
             }
           }
           if (aracHatasiMi(r.status, metin)) aracHatasi = metin.slice(0, 400);
+          // Anahtar geçersizse (401) yedek model de aynı sonucu verir
+          if (p.yedekModel && !yedekte && model !== p.yedekModel && r.status !== 401) {
+            hatalar.push(`${p.ad} (${model}): HTTP ${r.status} ${metin.slice(0, 200)}`);
+            yedekte = true;
+            durum(`${p.ad}: ${model} yanıt vermedi, yedek model ${p.yedekModel} deneniyor…`);
+            model = p.yedekModel;
+            continue;
+          }
           // Rol modeli dolduysa yalnızca o rolü dinlendir; sağlayıcının diğer modeli çalışabilir
-          if (r.status === 429) bekleme[aday.rol ? `${id}:${aday.rol}` : id] = Date.now() + 60_000;
+          if (r.status === 429) bekleme[aday.rol ? `${id}:${aday.rol}` : id] = Date.now() + KOTA_BEKLEME;
           hatalar.push(`${p.ad} (${model}): HTTP ${r.status} ${metin.slice(0, 200)}`);
           break;
         }
@@ -183,7 +283,7 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
           hatalar.push(`${p.ad}: boş yanıt`);
           break;
         }
-        if (!aday.rol && !ayar.model?.[id]) modelKaydet(ayar, id, null, model);
+        if (!aday.rol && !yedekte && !ayar.model?.[id]) modelKaydet(ayar, id, null, model);
         return { message, saglayici: p.ad, model };
       } catch (e) {
         hatalar.push(`${p.ad}: ${e.message}`);
