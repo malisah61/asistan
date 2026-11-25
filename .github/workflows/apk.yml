@@ -64,6 +64,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete son --yes --cleanup-tag || true
-          gh release create son Asistan.apk \
-            --title "Asistan (son sürüm)" \
-            --notes "Commit: ${GITHUB_SHA::7} — telefondan bu sayfadaki Asistan.apk dosyasını indirip kur."
+          # GitHub release API'si ara sıra 5xx veriyor: birkaç kez dene
+          for i in 1 2 3 4; do
+            gh release create son Asistan.apk \
+              --title "Asistan (son sürüm)" \
+              --notes "Commit: ${GITHUB_SHA::7} — telefondan bu sayfadaki Asistan.apk dosyasını indirip kur." && exit 0
+            sleep $((i * 15))
+          done
+          echo "::error::Release oluşturulamadı (GitHub hatası); APK bu çalışmanın Artifacts bölümünde."
+          exit 1

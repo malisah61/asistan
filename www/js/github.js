@@ -176,6 +176,23 @@ export class GitHub {
     return r.html_url;
   }
 
+  async prBirlestir(repo, numara, baslik) {
+    const r = await this.istek(`/repos/${repo}/pulls/${numara}/merge`, {
+      method: 'PUT',
+      body: { merge_method: 'squash', ...(baslik ? { commit_title: baslik } : {}) },
+    });
+    return r.sha;
+  }
+
+  async releaseEtiket(repo, etiket) {
+    try {
+      return await this.istek(`/repos/${repo}/releases/tags/${encodeURIComponent(etiket)}`);
+    } catch (e) {
+      if (e.status === 404) return null;
+      throw e;
+    }
+  }
+
   async kodAra(repo, sorgu) {
     const r = await this.istek(`/search/code?q=${encodeURIComponent(sorgu + ' repo:' + repo)}&per_page=20`);
     return r.items.map((i) => i.path);

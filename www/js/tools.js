@@ -2,6 +2,7 @@
 
 import { sohbet, jsonOnar } from './llm.js';
 import { sozdizimKontrol, diffUret, repoHaritasi, KONTROL_YML } from './kontrol.js';
+import { APK_WORKFLOW_YOLU, apkWorkflow, apkEtiketi } from './apk.js';
 
 const fn = (name, description, properties = {}, required = []) => ({
   type: 'function',
@@ -46,6 +47,13 @@ export const ARACLAR = [
     { repo: S('sahip/repo'), dal: S('dal') }, ['repo', 'dal']),
   fn('kontrol_kur', 'Repoda .github/workflows/kontrol.yml yoksa ekler (JS/JSON/Python/GDScript sözdizimi, C# derleme, npm test). Geri bildirim döngüsü için gerekli.',
     { repo: S('sahip/repo'), dal: S('hedef dal') }, ['repo', 'dal']),
+  fn('apk_kur', 'HTML/JS oyun ya da uygulamadan Android APK üreten workflow\'u repoya ekler (Capacitor). Her push\'ta APK derlenir ve Releases sayfasına konur. Godot projelerinde kullanma (repodaki kendi derleme workflow\'unu kullan).',
+    { repo: S('sahip/repo'), dal: S('hedef dal'), web_klasoru: S('index.html\'in olduğu klasör ("." = kök, örn. "www")'), uygulama_adi: S('telefonda görünecek ad') },
+    ['repo', 'dal']),
+  fn('apk_linki', 'Bir dalın en son APK\'sının indirme linkini verir. Derleme sürüyorsa önce kontrol_bekle çağır. İş bitince bu linki kullanıcıya MUTLAKA ver.',
+    { repo: S('sahip/repo'), dal: S('dal') }, ['repo', 'dal']),
+  fn('pr_birlestir', 'PR\'ı ana dala birleştirir (squash). Yalnızca kontroller geçtiyse ve kullanıcı istediyse kullan; kullanıcıdan onay istenir. Birleşince ana dalın APK\'sı da derlenir.',
+    { repo: S('sahip/repo'), numara: N('PR numarası'), baslik: S('birleştirme commit başlığı (isteğe bağlı)') }, ['repo', 'numara']),
   fn('pr_ac', 'Daldaki değişiklikler için Pull Request açar.',
     { repo: S('sahip/repo'), baslik: S('PR başlığı'), aciklama: S('ne değişti, nasıl test edildi'), dal: S('değişiklik dalı'), hedef: S('hedef dal (boşsa varsayılan)') },
     ['repo', 'baslik', 'aciklama', 'dal']),
@@ -80,7 +88,7 @@ const GORSEL_UZANTI = /\.(png|jpe?g|webp|gif)$/i;
 export const OKUMA = new Set(['repolari_listele', 'repo_haritasi', 'dosya_agaci', 'dosya_oku', 'kod_ara', 'actions_durum', 'actions_hata']);
 // Para harcayabilen ya da yayın yapan iş akışları: otomatik izin açıkken bile sorulur, gece hiç başlatılmaz
 const PAHALI_WORKFLOW = /siparis|sipari[sş]|uret|üret|modal|gpu|deploy|yayin|yayın|release|publish|anim|video|uc_boyut/i;
-const YAZMA = new Set(['dosya_yaz', 'dosya_duzenle', 'dosya_sil', 'pr_ac', 'actions_baslat', 'dal_olustur', 'kontrol_kur', 'claudea_devret']);
+const YAZMA = new Set(['dosya_yaz', 'dosya_duzenle', 'dosya_sil', 'pr_ac', 'actions_baslat', 'dal_olustur', 'kontrol_kur', 'apk_kur', 'pr_birlestir', 'claudea_devret']);
 // Tek araç sonucu üst sınırı; büyük dosyalar baslangic/bitis ile parça parça okunur (bağlam küçük kalsın)
 const MAKS = 10000;
 const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -190,7 +198,8 @@ export async function calistir(ad, arg, ctx) {
   }
 
   // Aktif repo dışında ya da adı para harcayan bir iş akışı: kullanıcının açık onayı şart
-  const pahali = ad === 'actions_baslat' && ((ctx.aktifRepo && arg.repo !== ctx.aktifRepo) || PAHALI_WORKFLOW.test(arg.workflow || ''));
+  const pahali = (ad === 'actions_baslat' && ((ctx.aktifRepo && arg.repo !== ctx.aktifRepo) || PAHALI_WORKFLOW.test(arg.workflow || ''))) ||
+    ad === 'pr_birlestir'; // ana dala yazar, geri almak zahmetli
   if ((YAZMA.has(ad) && ayar.onayIste) || pahali) {
     const ozet = yeniIcerik !== undefined
       ? `${arg.repo}/${arg.yol} (${arg.dal})\n${arg.mesaj}\n\n${diffUret(eski, yeniIcerik)}`
@@ -260,6 +269,55 @@ export async function calistir(ad, arg, ctx) {
       await gh.dosyaYaz(arg.repo, yol, KONTROL_YML, 'kontrol workflow eklendi (asistan geri bildirim döngüsü)', arg.dal);
       ctx.gorev.sonSha[`${arg.repo}#${arg.dal}`] = gh.sonCommit;
       return 'kontrol.yml eklendi. Bu daldaki her push artık otomatik kontrol edilecek.';
+    }
+    case 'apk_kur': {
+      const bilgi = await gh.istek(`/repos/${arg.repo}`);
+      const dosyalar = await gh.agac(arg.repo, arg.dal);
+      if (dosyalar.includes('project.godot') || dosyalar.some((d) => d.endsWith('/project.godot'))) {
+        return 'Bu bir Godot projesi: apk_kur yalnızca HTML/JS içindir. .github/workflows altındaki mevcut derleme workflow\'una bak; yoksa kullanıcıya söyle.';
+      }
+      const mevcut = [];
+      for (const d of dosyalar.filter((x) => /^\.github\/workflows\/.+\.ya?ml$/.test(x))) {
+        const ic = await eskiIcerik(gh, arg.repo, d, arg.dal);
+        if (/assembleDebug|assembleRelease|\.apk\b/.test(ic)) mevcut.push(d);
+      }
+      if (mevcut.length) return `Repoda zaten APK üreten workflow var: ${mevcut.join(', ')}. Onu kullan; derleme bitince apk_linki ile linki al.`;
+      const klasor = (arg.web_klasoru || '').replace(/^\.\/|\/$/g, '') ||
+        (dosyalar.includes('index.html') ? '.' : (dosyalar.filter((d) => d.endsWith('/index.html')).sort((a, b) => a.length - b.length)[0] || '').replace(/\/index\.html$/, ''));
+      if (!klasor || !dosyalar.includes(klasor === '.' ? 'index.html' : `${klasor}/index.html`)) {
+        return 'HATA: index.html bulunamadı. Önce oyunun index.html dosyasını yaz ya da web_klasoru ver.';
+      }
+      const icerik = apkWorkflow({ repo: arg.repo, webKlasoru: klasor, uygulamaAdi: arg.uygulama_adi || arg.repo.split('/')[1], varsayilanDal: bilgi.default_branch });
+      await gh.dosyaYaz(arg.repo, APK_WORKFLOW_YOLU, icerik, 'APK derleme workflow\'u eklendi (Asistan)', arg.dal);
+      ctx.gorev.sonSha[`${arg.repo}#${arg.dal}`] = gh.sonCommit;
+      return `APK workflow\'u eklendi (${APK_WORKFLOW_YOLU}, web klasörü: ${klasor}). Derleme başladı: kontrol_bekle çağır, sonra apk_linki ile linki al.`;
+    }
+    case 'apk_linki': {
+      const bilgi = await gh.istek(`/repos/${arg.repo}`);
+      const etiket = apkEtiketi(arg.dal, bilgi.default_branch);
+      const rel = await gh.releaseEtiket(arg.repo, etiket);
+      const apk = rel?.assets?.find((a) => a.name.endsWith('.apk'));
+      if (!apk) {
+        // Release oluşturulamadıysa (GitHub 5xx) APK son başarılı derlemenin Artifacts bölümündedir
+        const runs = await gh.istek(`/repos/${arg.repo}/actions/runs?branch=${encodeURIComponent(arg.dal)}&status=success&per_page=10`);
+        for (const r of runs.workflow_runs || []) {
+          const art = await gh.istek(`/repos/${arg.repo}/actions/runs/${r.id}/artifacts`);
+          if (art.artifacts?.some((a) => /apk/i.test(a.name))) {
+            return `APK release sayfasında yok ama derlendi: ${r.html_url}\n(Sayfanın altındaki "Artifacts" bölümünden zip olarak indirilir, içinden .apk çıkar; GitHub'a giriş gerekir.) ` +
+              `Commit: ${r.head_sha.slice(0, 7)}. Bu linki son raporda kullanıcıya ver.`;
+          }
+        }
+        return `"${etiket}" etiketiyle APK yok. Derleme hâlâ sürüyor olabilir (kontrol_bekle) ya da repoda APK workflow'u yoktur (apk_kur). Releases: https://github.com/${arg.repo}/releases`;
+      }
+      const son = await gh.dalSonCommit(arg.repo, arg.dal);
+      const guncel = !rel.target_commitish || son.startsWith(rel.target_commitish) || rel.target_commitish === arg.dal || (rel.body || '').includes(son.slice(0, 7));
+      return `APK: ${apk.browser_download_url}\nSürüm sayfası: ${rel.html_url}\n` +
+        (guncel ? 'Bu APK dalın en son commit\'inden derlendi.' : `UYARI: Bu APK dalın son commit'inden (${son.slice(0, 7)}) önce derlenmiş; yeni derleme bitmemiş olabilir, kontrol_bekle çağırıp tekrar bak.`) +
+        '\nBu linki son raporda kullanıcıya ver (telefondan indirip kurabilir).';
+    }
+    case 'pr_birlestir': {
+      const sha = await gh.prBirlestir(arg.repo, arg.numara, arg.baslik);
+      return `PR #${arg.numara} birleştirildi (${String(sha).slice(0, 7)}). Ana dalın APK'sı derleniyorsa kontrol_bekle (dal: ana dal) sonra apk_linki.`;
     }
     case 'pr_ac':
       return 'PR: ' + (await gh.prAc(arg.repo, arg.baslik, arg.aciklama, arg.dal, arg.hedef));
