@@ -24,8 +24,98 @@ const listeOnbellek = {}; // id -> { zaman, modeller }
 // Ücret/bakiye hatası kısa sürede düzelmez; sağlayıcıyı uzun süre atla (ayar.dinlen'de kalıcı tutulur)
 const UCRETLI_BEKLEME = 6 * 60 * 60_000;
 const KOTA_BEKLEME = 60_000;
-// Sunucu yanıtsız kalırsa sonsuza kadar beklememek için; uzun dosya yazımına yetecek kadar geniş
-const ISTEK_ZAMAN_ASIMI = 180_000;
+// Yanıt akış (stream) olarak alınır: model yazmaya devam ettiği sürece beklenir, yalnızca susarsa kesilir.
+// Uzun dosya yazımı tek seferde 3 dakikayı aşabiliyor; toplam süre sınırı bu yüzden geniş.
+const ILK_YANIT_SURESI = 180_000; // büyük bağlamda ilk kelime gelene kadar
+const SESSIZLIK_SURESI = 90_000; // iki parça arasında
+const TOPLAM_SURE = 15 * 60_000;
+const ILERLEME_ARALIGI = 3000;
+
+function zamanAsimi(mesaj) {
+  const e = new Error(mesaj);
+  e.name = 'TimeoutError';
+  return e;
+}
+
+/**
+ * /chat/completions isteğini akışla yapar. Hata durumunda { ok: false, status, metin },
+ * başarıda { ok: true, message } döner. Sunucu akışı desteklemezse düz JSON da okunur.
+ */
+async function akisliIstek(url, hdr, govde, ilerleme) {
+  const ac = new AbortController();
+  let neden = null;
+  let zamanlayici = null;
+  let okuyucu = null;
+  const kes = (m) => {
+    neden = zamanAsimi(m);
+    ac.abort();
+    // Bazı ortamlarda abort açık akışı kapatmıyor; okuyucuyu da iptal et ki read() beklemede kalmasın
+    okuyucu?.cancel().catch(() => {});
+  };
+  const kur = (ms, m) => {
+    clearTimeout(zamanlayici);
+    zamanlayici = setTimeout(() => kes(m), ms);
+  };
+  const toplam = setTimeout(() => kes(`${TOPLAM_SURE / 60_000} dk içinde bitmedi`), TOPLAM_SURE);
+  kur(ILK_YANIT_SURESI, `${ILK_YANIT_SURESI / 1000} sn içinde yanıt vermeye başlamadı`);
+  try {
+    const r = await fetch(url, { method: 'POST', headers: hdr, body: JSON.stringify({ ...govde, stream: true }), signal: ac.signal });
+    const tur = r.headers.get('content-type') || '';
+    if (!r.ok || !r.body || !tur.includes('event-stream')) {
+      const metin = await r.text();
+      if (!r.ok) return { ok: false, status: r.status, metin };
+      return { ok: true, message: JSON.parse(metin).choices?.[0]?.message };
+    }
+    okuyucu = r.body.getReader();
+    const coz = new TextDecoder();
+    const msg = { role: 'assistant', content: '', tool_calls: [] };
+    let tampon = '';
+    let uzunluk = 0;
+    let sonIlerleme = 0;
+    for (;;) {
+      kur(SESSIZLIK_SURESI, `${SESSIZLIK_SURESI / 1000} sn boyunca sustu`);
+      const { done, value } = await okuyucu.read();
+      if (neden) throw neden;
+      if (done) break;
+      tampon += coz.decode(value, { stream: true });
+      const satirlar = tampon.split('\n');
+      tampon = satirlar.pop();
+      for (const satir of satirlar) {
+        const v = satir.trim();
+        if (!v.startsWith('data:')) continue;
+        const veri = v.slice(5).trim();
+        if (!veri || veri === '[DONE]') continue;
+        let j;
+        try { j = JSON.parse(veri); } catch { continue; }
+        if (j.error) return { ok: false, status: 500, metin: JSON.stringify(j.error) };
+        const d = j.choices?.[0]?.delta;
+        if (!d) continue;
+        if (d.content) msg.content += d.content;
+        for (const tc of d.tool_calls || []) {
+          const t = (msg.tool_calls[tc.index ?? 0] ||= { id: '', type: 'function', function: { name: '', arguments: '' } });
+          if (tc.id) t.id = tc.id;
+          if (tc.function?.name) t.function.name += tc.function.name;
+          if (tc.function?.arguments) t.function.arguments += tc.function.arguments;
+        }
+        uzunluk += (d.content?.length || 0) + (d.reasoning_content?.length || 0) +
+          (d.tool_calls || []).reduce((n, tc) => n + (tc.function?.arguments?.length || 0), 0);
+      }
+      if (Date.now() - sonIlerleme > ILERLEME_ARALIGI) {
+        sonIlerleme = Date.now();
+        ilerleme(uzunluk);
+      }
+    }
+    msg.tool_calls = msg.tool_calls.filter((t) => t && t.function.name);
+    if (!msg.tool_calls.length) delete msg.tool_calls;
+    if (!msg.content && msg.tool_calls) msg.content = null;
+    return { ok: true, message: msg };
+  } catch (e) {
+    throw neden || e;
+  } finally {
+    clearTimeout(zamanlayici);
+    clearTimeout(toplam);
+  }
+}
 const VARSAYILAN_SART_SURUMU = 1;
 
 // Kullanım şartları onayını arayüz sorar; llm.js'in ekrana erişimi yok
@@ -184,20 +274,17 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
           break;
         }
       }
-      durum(`${p.ad} (${model}) ${rol === 'planlayici' ? 'plan yapıyor' : rol === 'gozden' ? 'gözden geçiriyor' : 'düşünüyor'}…`);
+      const is = rol === 'planlayici' ? 'plan yapıyor' : rol === 'gozden' ? 'gözden geçiriyor' : 'düşünüyor';
+      durum(`${p.ad} (${model}) ${is}…`);
       try {
         const govde = { model, messages, temperature: 0.2 };
         if (tools?.length) {
           govde.tools = tools;
           govde.tool_choice = 'auto';
         }
-        const r = await fetch(`${p.url}/chat/completions`, {
-          method: 'POST',
-          headers: headers(id, ayar.anahtar[id]),
-          body: JSON.stringify(govde),
-          signal: AbortSignal.timeout(ISTEK_ZAMAN_ASIMI),
-        });
-        const metin = await r.text();
+        const r = await akisliIstek(`${p.url}/chat/completions`, headers(id, ayar.anahtar[id]), govde,
+          (n) => durum(`${p.ad} (${model}) yazıyor… ${n < 1000 ? n : (n / 1000).toFixed(1) + ' bin'} karakter`));
+        const metin = r.metin;
         if (!r.ok) {
           if (!sartDenendi && sartlarKabulEdilmediMi(metin)) {
             sartDenendi = true;
@@ -236,9 +323,8 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
           hatalar.push(`${p.ad} (${model}): HTTP ${r.status} ${metin.slice(0, 200)}`);
           break;
         }
-        const veri = JSON.parse(metin);
-        const message = veri.choices?.[0]?.message;
-        if (!message) {
+        const { message } = r;
+        if (!message || (!message.content && !message.tool_calls?.length)) {
           hatalar.push(`${p.ad}: boş yanıt`);
           break;
         }
@@ -246,7 +332,7 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
         return { message, saglayici: p.ad, model };
       } catch (e) {
         if (e.name === 'TimeoutError') {
-          hatalar.push(`${p.ad} (${model}): ${ISTEK_ZAMAN_ASIMI / 1000} sn içinde yanıt vermedi`);
+          hatalar.push(`${p.ad} (${model}): ${e.message} (yanıt vermedi)`);
           // Takılan model yerine yedeği dene; o da takılırsa bir sonraki adım önce diğer sağlayıcılarla denensin
           if (p.yedekModel && !yedekte && model !== p.yedekModel) {
             yedekte = true;
@@ -255,7 +341,7 @@ export async function sohbet(ayar, messages, tools, durum = () => {}, rol) {
             continue;
           }
           bekleme[id] = Date.now() + KOTA_BEKLEME;
-          durum(`${p.ad} ${ISTEK_ZAMAN_ASIMI / 1000} sn yanıt vermedi…`);
+          durum(`${p.ad} yanıt vermedi: ${e.message}`);
         } else {
           hatalar.push(`${p.ad}: ${e.message}`);
         }
