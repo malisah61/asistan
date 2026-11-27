@@ -559,7 +559,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
       gorev.gunluk.push(`${ad}(${JSON.stringify(arg).slice(0, 160)}) → ${sonuc.slice(0, 200).replace(/\n/g, ' ')}`);
       mesajlar.push({
         role: 'tool', tool_call_id: c.id, name: ad, content: sonuc,
-        ...(ad === 'dosya_oku' && arg ? { okumaAnahtari: okumaAnahtari(arg) } : {}),
+        ...(ad === 'dosya_oku' && arg ? { okumaAnahtari: `${arg.repo}#${arg.dal || ''}#${arg.yol}` } : {}),
       });
     }
 
