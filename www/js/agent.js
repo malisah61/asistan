@@ -2,7 +2,7 @@
 // + bağlam sıkıştırma, tekrar algılama, metin içi araç çağrısı yedeği, akıllı ders seçimi
 
 import { sohbet, jsonOnar, metindenAracCagrilari, olcum } from './llm.js';
-import { ARACLAR, ARAC_ADLARI, OKUMA, calistir, okumaAnahtari } from './tools.js';
+import { ARACLAR, ARAC_ADLARI, OKUMA, calistir } from './tools.js';
 import { repoHaritasi } from './kontrol.js';
 
 const YEDEK_STIL = `Önce oku ve anla, sonra planla, sonra küçük adımlarla değiştir.
