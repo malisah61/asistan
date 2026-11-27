@@ -2,7 +2,7 @@
 // + bağlam sıkıştırma, tekrar algılama, metin içi araç çağrısı yedeği, akıllı ders seçimi
 
 import { sohbet, jsonOnar, metindenAracCagrilari, olcum } from './llm.js';
-import { ARACLAR, ARAC_ADLARI, OKUMA, calistir, okumaAnahtari } from './tools.js';
+import { ARACLAR, ARAC_ADLARI, OKUMA, calistir } from './tools.js';
 import { repoHaritasi } from './kontrol.js';
 
 const YEDEK_STIL = `Önce oku ve anla, sonra planla, sonra küçük adımlarla değiştir.
@@ -259,8 +259,8 @@ function kisaltBir(m, gorev) {
     if (m.role === 'tool' && m.content.length > 500 && !m.sikisti) {
       m.content = m.content.slice(0, 400) + `\n…(eski sonuç kısaltıldı; gerekirse yeniden oku)`;
       m.sikisti = true;
-      // İçerik artık bağlamda yok: bu dosya tekrar okunursa "zaten okudun" denmesin
-      if (m.okumaAnahtari && gorev?.okunan?.[m.okumaAnahtari]) gorev.okunan[m.okumaAnahtari].sikisti = true;
+      // İçerik artık bağlamda yok: bu dosya tekrar okunursa "zaten okudun" denmesin (önbellekten taze okunsun)
+      if (m.okumaAnahtari && gorev?.okumaOnbellek?.[m.okumaAnahtari]) gorev.okumaOnbellek[m.okumaAnahtari].sikisti = true;
     } else if (m.role === 'assistant' && m.tool_calls) {
       for (const c of m.tool_calls) {
         const a = jsonOnar(c.function.arguments);
@@ -489,13 +489,43 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
       }
     };
     const hazir = new Map(); // çağrı sırası → önceden (paralel) alınmış sonuç
+    // GitHub API rate limit'ini tetiklememek için aynı anda en fazla bu kadar okuma yapılır
+    const ESZAMANLI_OKUMA = 4;
+    const eszamanli = async (isler, sinir) => {
+      const sonuc = new Array(isler.length);
+      let i = 0;
+      const isci = async () => {
+        while (i < isler.length) {
+          const k = i++;
+          sonuc[k] = await isler[k]();
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(sinir, isler.length) }, isci));
+      return sonuc;
+    };
     const okumaGrubu = async (bas) => {
       let son = bas;
       while (son < cagrilar.length && okumaMi(cagrilar[son].function?.name)) son++;
       if (son - bas < 2) return;
-      ui.durum(`${son - bas} okuma aynı anda yapılıyor…`);
+      // Aynı yanıtta birebir aynı okuma iki kez istenirse ikincisini API'ye gönderme, aynı promise'i paylaş
+      const anahtarPromise = new Map();
+      const isler = [];
+      for (let k = bas; k < son; k++) {
+        const c = cagrilar[k];
+        const arg = jsonOnar(c.function?.arguments);
+        const anahtar = arg && typeof arg === 'object' ? c.function?.name + JSON.stringify(arg) : null;
+        if (anahtar && anahtarPromise.has(anahtar)) {
+          const p = anahtarPromise.get(anahtar);
+          isler.push(() => p);
+        } else {
+          const p = calistirBir(c);
+          if (anahtar) anahtarPromise.set(anahtar, p);
+          isler.push(() => p);
+        }
+      }
+      ui.durum(`${son - bas} okuma yapılıyor…`);
       const t0 = Date.now();
-      const sonuclar = await Promise.all(cagrilar.slice(bas, son).map(calistirBir));
+      const sonuclar = await eszamanli(isler, ESZAMANLI_OKUMA);
       sonuclar.forEach((r, k) => hazir.set(bas + k, r));
       gorev.aracSure += Date.now() - t0;
     };
@@ -529,7 +559,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
       gorev.gunluk.push(`${ad}(${JSON.stringify(arg).slice(0, 160)}) → ${sonuc.slice(0, 200).replace(/\n/g, ' ')}`);
       mesajlar.push({
         role: 'tool', tool_call_id: c.id, name: ad, content: sonuc,
-        ...(ad === 'dosya_oku' && arg ? { okumaAnahtari: okumaAnahtari(arg) } : {}),
+        ...(ad === 'dosya_oku' && arg ? { okumaAnahtari: `${arg.repo}#${arg.dal || ''}#${arg.yol}` } : {}),
       });
     }
 

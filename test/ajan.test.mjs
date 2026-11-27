@@ -17,16 +17,21 @@ function ortam(senaryo) {
     return new Response(JSON.stringify({ choices: [{ message }] }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
   const olay = [];
-  const dosyalar = { 'a.gd': 'eski satır\nbaşka', 'b.gd': 'b içerik' };
+  const dosyalar = { 'a.gd': 'eski satır\nbaşka', 'b.gd': 'b içerik', 'cok.gd': Array.from({ length: 20 }, (_, k) => `satır ${k + 1}`).join('\n') };
   let surum = 0;
   const gh = {
-    dosyaOku: async (repo, yol) => {
+    dosyaOku: async (repo, yol, dal, baslangic, bitis) => {
       if (yol === 'AGENTS.md') throw Object.assign(new Error('yok'), { status: 404 });
       if (yol.endsWith('.yml')) return { sha: 'w', icerik: WF };
       olay.push(`oku-bas ${yol}`);
       await new Promise((r) => setTimeout(r, 150));
       olay.push(`oku-bit ${yol}`);
-      return { sha: `${yol}@${surum}`, icerik: dosyalar[yol] ?? '' };
+      const tam = dosyalar[yol] ?? '';
+      const satirlar = tam.split('\n');
+      const icerik = baslangic || bitis
+        ? satirlar.slice((baslangic || 1) - 1, bitis || satirlar.length).join('\n')
+        : tam;
+      return { sha: `${yol}@${surum}`, icerik };
     },
     sha: async () => 'x',
     dosyaYaz: async (repo, yol, icerik) => { olay.push(`yaz ${yol}`); dosyalar[yol] = icerik; surum++; gh.sonCommit = 'c' + surum; return 'https://commit'; },
@@ -117,4 +122,32 @@ test('dali_birlestir yalnızca doğrulanmış son commit\'te ve sormadan çalı�
   assert.match(araclar[3][1], /^✅/);
   assert.ok(olay.includes('birlestir'));
   assert.deepEqual(onaylar, []);
+});
+
+test('daha geniş aralık sonra dar aralık istenirse önbellekten yanıtlanır (API\'ye gitmez)', async () => {
+  const { olay } = await calistir([
+    [cagri('dosya_oku', { repo: R, yol: 'cok.gd', baslangic: 1, bitis: 20 })],
+    [cagri('dosya_oku', { repo: R, yol: 'cok.gd', baslangic: 10, bitis: 20 })],
+    'Rapor',
+  ]);
+  assert.equal(olay.filter((x) => x === 'oku-bas cok.gd').length, 1, 'ikinci okuma API\'ye gitmemeli');
+});
+
+test('yazma sonrası aynı dosya önbellekten değil taze okunur', async () => {
+  const { olay } = await calistir([
+    [cagri('dosya_oku', { repo: R, yol: 'a.gd', dal: 'asistan/x' })],
+    [cagri('dosya_duzenle', { repo: R, yol: 'a.gd', dal: 'asistan/x', eski: 'eski', yeni: 'yeni', mesaj: 'm' })],
+    [cagri('dosya_oku', { repo: R, yol: 'a.gd', dal: 'asistan/x' })],
+    'Rapor',
+  ]);
+  // ilk okuma + dosya_duzenle'nin içeriği okuması + yazma sonrası taze okuma = 3
+  assert.equal(olay.filter((x) => x === 'oku-bas a.gd').length, 3, 'yazma sonrası okuma taze olmalı');
+});
+
+test('aynı yanıtta aynı dosya iki kez istenirse API\'ye tek kez gidilir', async () => {
+  const { olay } = await calistir([
+    [cagri('dosya_oku', { repo: R, yol: 'b.gd' }), cagri('dosya_oku', { repo: R, yol: 'b.gd' })],
+    'Rapor',
+  ]);
+  assert.equal(olay.filter((x) => x === 'oku-bas b.gd').length, 1, 'tekrar eden okuma tek istek olmalı');
 });
