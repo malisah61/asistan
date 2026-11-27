@@ -581,6 +581,16 @@ function sureOzeti(gorev) {
 
 // ---------- Öz değerlendirme ----------
 
+// Ders çıkma olasılığı: hata/tekrar yaşandıysa ya da iş uzun sürdüyse değerlendir.
+// Tek adımlık, hatasız işlerde fazladan LLM çağrısı yapmanın karşılığı yok.
+const DERS_ASGARI_ADIM = 4;
+function dersDegerMi(gorev, cevap) {
+  if ((gorev.aracSayisi || 0) >= DERS_ASGARI_ADIM) return true;
+  if (gorev.kontrolHata > 0 || gorev.devredildi) return true;
+  if (gorev.gunluk.some((g) => /^(HATA|COMMIT YAPILMADI)/.test(g.split('→ ')[1] || ''))) return true;
+  return /hata|başarısız|yapamadım|edemedim/i.test(String(cevap || ''));
+}
+
 export async function ozDegerlendir({ ayar, hafiza, aktifRepo, istek, cevap, gorev }) {
   if (!gorev?.gunluk?.length) return null;
   // Kısa ve sorunsuz işlerde ders çıkma olasılığı düşük: her görevde fazladan LLM çağrısı yapma
