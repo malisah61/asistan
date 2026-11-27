@@ -285,7 +285,7 @@ export async function calistir(ad, arg, ctx) {
       // Kısaltma olduysa yalnızca gerçekten gönderilen satırları kapsanmış say (yoksa eksik içeriği "okundu" sanır)
       const kesildi = govde.length < baslik.length + parca.length;
       const kapsananSon = kesildi ? bas + govde.split('\n').length - 2 : son;
-      onbellek[dosyaAnahtar] = { sha: r.sha, adim: ctx.gorev.adim || 0, bas, son: kapsananSon, sikisti: false };
+      onbellek[dosyaAnahtar] = { sha: r.sha, adim: ctx.gorev.adim || 0, bas, son: kapsananSon, toplam: satirlar.length, sikisti: false };
       return govde;
     }
     case 'kod_ara':
