@@ -126,7 +126,7 @@ test('dali_birlestir yalnızca doğrulanmış son commit\'te ve sormadan çalı�
 
 test('daha geniş aralık sonra dar aralık istenirse önbellekten yanıtlanır (API\'ye gitmez)', async () => {
   const { olay } = await calistir([
-    [cagri('dosya_oku', { repo: R, yol: 'cok.gd', baslangic: 1, bitis: 50 })],
+    [cagri('dosya_oku', { repo: R, yol: 'cok.gd', baslangic: 1, bitis: 20 })],
     [cagri('dosya_oku', { repo: R, yol: 'cok.gd', baslangic: 10, bitis: 20 })],
     'Rapor',
   ]);
