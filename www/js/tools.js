@@ -309,11 +309,14 @@ export async function calistir(ad, arg, ctx) {
       ctx.gorev.yazdi = true;
       const url = await gh.dosyaYaz(arg.repo, arg.yol, yeniIcerik, arg.mesaj, arg.dal);
       ctx.gorev.sonSha[`${arg.repo}#${arg.dal}`] = gh.sonCommit;
+      // Dosya değişti: önbellekteki eski içerik bayat, bir sonraki okuma taze gelsin
+      delete ctx.gorev.okumaOnbellek?.[`${arg.repo}#${arg.dal || ''}#${arg.yol}`];
       return `Commit: ${url}\nİlgili tüm değişiklikler bitince kontrol_bekle çağır.`;
     }
     case 'dosya_sil':
       await gh.dosyaSil(arg.repo, arg.yol, arg.mesaj, arg.dal);
       ctx.gorev.sonSha[`${arg.repo}#${arg.dal}`] = undefined;
+      delete ctx.gorev.okumaOnbellek?.[`${arg.repo}#${arg.dal || ''}#${arg.yol}`];
       return 'Silindi';
     case 'kontrol_bekle':
       return await kontrolBekle(ctx, arg);
