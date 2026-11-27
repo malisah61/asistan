@@ -140,7 +140,8 @@ test('yazma sonrası aynı dosya önbellekten değil taze okunur', async () => {
     [cagri('dosya_oku', { repo: R, yol: 'a.gd', dal: 'asistan/x' })],
     'Rapor',
   ]);
-  assert.equal(olay.filter((x) => x === 'oku-bas a.gd').length, 2, 'yazma sonrası okuma taze olmalı');
+  // ilk okuma + dosya_duzenle'nin içeriği okuması + yazma sonrası taze okuma = 3
+  assert.equal(olay.filter((x) => x === 'oku-bas a.gd').length, 3, 'yazma sonrası okuma taze olmalı');
 });
 
 test('aynı yanıtta aynı dosya iki kez istenirse API\'ye tek kez gidilir', async () => {
