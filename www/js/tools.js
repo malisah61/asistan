@@ -265,10 +265,12 @@ export async function calistir(ad, arg, ctx) {
       const onbellek = (ctx.gorev.okumaOnbellek ||= {});
       const kayit = onbellek[dosyaAnahtar];
       const istenenBas = Math.max(1, Number(arg.baslangic) || 1);
+      // bitis verilmediyse "dosyanın sonuna kadar" istenir; önbellek tüm dosyayı kapsıyorsa yeterli
       const istenenSon = Number(arg.bitis) || Infinity;
+      const kapsiyor = kayit && (istenenSon === Infinity ? kayit.son >= kayit.toplam : kayit.son >= istenenSon);
 
       // 1) Önbellekteki içerik istenen aralığı kapsıyorsa ve bağlamda hâlâ duruyorsa API'ye hiç gitme
-      if (kayit && !kayit.sikisti && kayit.bas <= istenenBas && kayit.son >= istenenSon) {
+      if (kayit && !kayit.sikisti && kayit.bas <= istenenBas && kapsiyor) {
         return `(Bu dosyayı/bölümü ${kayit.adim}. adımda okudun ve o zamandan beri değişmedi; içeriği yukarıda. Yeniden okuma, devam et.)`;
       }
 
