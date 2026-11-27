@@ -144,6 +144,16 @@ test('yazma sonrası aynı dosya önbellekten değil taze okunur', async () => {
   assert.equal(olay.filter((x) => x === 'oku-bas a.gd').length, 3, 'yazma sonrası okuma taze olmalı');
 });
 
+test('dersDegerMi: kısa ve hatasız işte öz değerlendirme atlanır, hatalı/uzun işte yapılır', async () => {
+  const { dersDegerMi } = await import('../www/js/agent.js');
+  const g = (ek = {}) => ({ aracSayisi: 1, kontrolHata: 0, gunluk: [], ...ek });
+  assert.equal(dersDegerMi(g(), 'Bitti.'), false, 'tek adımlık hatasız iş değerlendirilmemeli');
+  assert.equal(dersDegerMi(g({ aracSayisi: 4 }), 'Bitti.'), true, 'uzun iş değerlendirilmeli');
+  assert.equal(dersDegerMi(g({ kontrolHata: 1 }), 'Bitti.'), true, 'kontrol hatası varsa değerlendirilmeli');
+  assert.equal(dersDegerMi(g({ gunluk: ['dosya_oku → HATA: yok'] }), 'Bitti.'), true, 'araç hatası varsa değerlendirilmeli');
+  assert.equal(dersDegerMi(g(), 'Bunu yapamadım.'), true, 'cevapta başarısızlık varsa değerlendirilmeli');
+});
+
 test('aynı yanıtta aynı dosya iki kez istenirse API\'ye tek kez gidilir', async () => {
   const { olay } = await calistir([
     [cagri('dosya_oku', { repo: R, yol: 'b.gd' }), cagri('dosya_oku', { repo: R, yol: 'b.gd' })],

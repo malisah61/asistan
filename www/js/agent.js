@@ -490,7 +490,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
     };
     const hazir = new Map(); // çağrı sırası → önceden (paralel) alınmış sonuç
     // GitHub API rate limit'ini tetiklememek için aynı anda en fazla bu kadar okuma yapılır
-    const ESZAMANLI_OKUMA = 4;
+    const ESZAMANLI_OKUMA = 6;
     const eszamanli = async (isler, sinir) => {
       const sonuc = new Array(isler.length);
       let i = 0;
@@ -504,6 +504,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
       return sonuc;
     };
     const okumaGrubu = async (bas) => {
+      // Yalnızca ARDIŞIK okumalar toplanır: araya giren yazma/silme sırayı bozar (dosyanın eski hali okunabilir)
       let son = bas;
       while (son < cagrilar.length && okumaMi(cagrilar[son].function?.name)) son++;
       if (son - bas < 2) return;
@@ -581,8 +582,20 @@ function sureOzeti(gorev) {
 
 // ---------- Öz değerlendirme ----------
 
+// Ders çıkma olasılığı: hata/tekrar yaşandıysa ya da iş uzun sürdüyse değerlendir.
+// Tek adımlık, hatasız işlerde fazladan LLM çağrısı yapmanın karşılığı yok.
+const DERS_ASGARI_ADIM = 4;
+export function dersDegerMi(gorev, cevap) {
+  if ((gorev.aracSayisi || 0) >= DERS_ASGARI_ADIM) return true;
+  if (gorev.kontrolHata > 0 || gorev.devredildi) return true;
+  if (gorev.gunluk.some((g) => /^(HATA|COMMIT YAPILMADI)/.test(g.split('→ ')[1] || ''))) return true;
+  return /hata|başarısız|yapamadım|edemedim/i.test(String(cevap || ''));
+}
+
 export async function ozDegerlendir({ ayar, hafiza, aktifRepo, istek, cevap, gorev }) {
   if (!gorev?.gunluk?.length) return null;
+  // Kısa ve sorunsuz işlerde ders çıkma olasılığı düşük: her görevde fazladan LLM çağrısı yapma
+  if (!dersDegerMi(gorev, cevap)) return null;
   const istem = [
     { role: 'system', content: 'Bir kodlama ajanının az önceki işini değerlendiriyorsun. Yalnızca JSON döndür.' },
     {
@@ -599,7 +612,8 @@ export async function ozDegerlendir({ ayar, hafiza, aktifRepo, istek, cevap, gor
     if (v?.ders) await hafiza.dersEkle(v.ders, { kapsam: v.kapsam, etiketler: v.etiketler, repo: aktifRepo });
 
     const tum = await hafiza.dersler();
-    if (dersleriAyristir(tum).length > 60) await dersleriBirlestir({ ayar, hafiza, tum });
+    // Birleştirme uzun sürer ve sonucu bu görevin cevabını etkilemez: beklemeden arka planda çalışsın
+    if (dersleriAyristir(tum).length > 60) dersleriBirlestir({ ayar, hafiza, tum }).catch(() => {});
     return v?.ders || null;
   } catch {
     return null;
