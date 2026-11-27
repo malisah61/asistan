@@ -17,7 +17,7 @@ function ortam(senaryo) {
     return new Response(JSON.stringify({ choices: [{ message }] }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
   const olay = [];
-  const dosyalar = { 'a.gd': 'eski satır\nbaşka', 'b.gd': 'b içerik' };
+  const dosyalar = { 'a.gd': 'eski satır\nbaşka', 'b.gd': 'b içerik', 'cok.gd': Array.from({ length: 60 }, (_, k) => `satır ${k + 1}`).join('\n') };
   let surum = 0;
   const gh = {
     dosyaOku: async (repo, yol) => {
