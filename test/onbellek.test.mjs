@@ -12,16 +12,22 @@ const json = (j, st = 200) => new Response(JSON.stringify(j), { status: st, head
 
 test('model listesi önbelleklenir, tazele ile yeniden çekilir', async () => {
   const llm = await yukle();
+  const eskiFetch = globalThis.fetch;
   let istek = 0;
   globalThis.fetch = async () => {
     istek++;
     return json({ data: [{ id: 'models/m-' + istek }] });
   };
-  // İlk çağrı ağa gider, ikincisi önbellekten döner: her turda model listesi çekilmesin
-  assert.deepEqual(await llm.modelleriGetir('evren', 'k'), ['m-1']);
-  assert.deepEqual(await llm.modelleriGetir('evren', 'k'), ['m-1']);
-  assert.equal(istek, 1);
-  // tazele: true önbelleği atlar
-  assert.deepEqual(await llm.modelleriGetir('evren', 'k', { tazele: true }), ['m-2']);
-  assert.equal(istek, 2);
+  try {
+    // İlk çağrı ağa gider, ikincisi önbellekten döner: her turda model listesi çekilmesin
+    assert.deepEqual(await llm.modelleriGetir('evren', 'k'), ['m-1']);
+    assert.deepEqual(await llm.modelleriGetir('evren', 'k'), ['m-1']);
+    assert.equal(istek, 1);
+    // tazele: true önbelleği atlar
+    assert.deepEqual(await llm.modelleriGetir('evren', 'k', { tazele: true }), ['m-2']);
+    assert.equal(istek, 2);
+  } finally {
+    // global fetch'i geri koy: aynı süreçteki diğer test dosyaları etkilenmesin
+    globalThis.fetch = eskiFetch;
+  }
 });
