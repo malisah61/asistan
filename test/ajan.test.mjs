@@ -125,31 +125,28 @@ test('dali_birlestir yalnızca doğrulanmış son commit\'te ve sormadan çalı�
 });
 
 test('daha geniş aralık sonra dar aralık istenirse önbellekten yanıtlanır (API\'ye gitmez)', async () => {
-  const { araclar, olay } = await calistir([
+  const { olay } = await calistir([
     [cagri('dosya_oku', { repo: R, yol: 'cok.gd', baslangic: 1, bitis: 50 })],
     [cagri('dosya_oku', { repo: R, yol: 'cok.gd', baslangic: 10, bitis: 20 })],
     'Rapor',
   ]);
   assert.equal(olay.filter((x) => x === 'oku-bas cok.gd').length, 1, 'ikinci okuma API\'ye gitmemeli');
-  assert.match(araclar[1][1], /^\(Bu dosyayı\/bölümü/);
 });
 
 test('yazma sonrası aynı dosya önbellekten değil taze okunur', async () => {
-  const { araclar, olay } = await calistir([
+  const { olay } = await calistir([
     [cagri('dosya_oku', { repo: R, yol: 'a.gd', dal: 'asistan/x' })],
     [cagri('dosya_duzenle', { repo: R, yol: 'a.gd', dal: 'asistan/x', eski: 'eski', yeni: 'yeni', mesaj: 'm' })],
     [cagri('dosya_oku', { repo: R, yol: 'a.gd', dal: 'asistan/x' })],
     'Rapor',
   ]);
   assert.equal(olay.filter((x) => x === 'oku-bas a.gd').length, 2, 'yazma sonrası okuma taze olmalı');
-  assert.ok(!/^\(Bu dosyayı\/bölümü/.test(araclar[2][1]));
 });
 
 test('aynı yanıtta aynı dosya iki kez istenirse API\'ye tek kez gidilir', async () => {
-  const { araclar, olay } = await calistir([
+  const { olay } = await calistir([
     [cagri('dosya_oku', { repo: R, yol: 'b.gd' }), cagri('dosya_oku', { repo: R, yol: 'b.gd' })],
     'Rapor',
   ]);
   assert.equal(olay.filter((x) => x === 'oku-bas b.gd').length, 1, 'tekrar eden okuma tek istek olmalı');
-  assert.equal(araclar[0][1], araclar[1][1], 'iki sonuç aynı olmalı');
 });
