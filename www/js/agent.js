@@ -489,13 +489,43 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
       }
     };
     const hazir = new Map(); // çağrı sırası → önceden (paralel) alınmış sonuç
+    // GitHub API rate limit'ini tetiklememek için aynı anda en fazla bu kadar okuma yapılır
+    const ESZAMANLI_OKUMA = 4;
+    const eszamanli = async (isler, sinir) => {
+      const sonuc = new Array(isler.length);
+      let i = 0;
+      const isci = async () => {
+        while (i < isler.length) {
+          const k = i++;
+          sonuc[k] = await isler[k]();
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(sinir, isler.length) }, isci));
+      return sonuc;
+    };
     const okumaGrubu = async (bas) => {
       let son = bas;
       while (son < cagrilar.length && okumaMi(cagrilar[son].function?.name)) son++;
       if (son - bas < 2) return;
-      ui.durum(`${son - bas} okuma aynı anda yapılıyor…`);
+      // Aynı yanıtta birebir aynı okuma iki kez istenirse ikincisini API'ye gönderme, aynı promise'i paylaş
+      const anahtarPromise = new Map();
+      const isler = [];
+      for (let k = bas; k < son; k++) {
+        const c = cagrilar[k];
+        const arg = jsonOnar(c.function?.arguments);
+        const anahtar = arg && typeof arg === 'object' ? c.function?.name + JSON.stringify(arg) : null;
+        if (anahtar && anahtarPromise.has(anahtar)) {
+          const p = anahtarPromise.get(anahtar);
+          isler.push(() => p);
+        } else {
+          const p = calistirBir(c);
+          if (anahtar) anahtarPromise.set(anahtar, p);
+          isler.push(() => p);
+        }
+      }
+      ui.durum(`${son - bas} okuma yapılıyor…`);
       const t0 = Date.now();
-      const sonuclar = await Promise.all(cagrilar.slice(bas, son).map(calistirBir));
+      const sonuclar = await eszamanli(isler, ESZAMANLI_OKUMA);
       sonuclar.forEach((r, k) => hazir.set(bas + k, r));
       gorev.aracSure += Date.now() - t0;
     };
