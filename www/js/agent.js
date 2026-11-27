@@ -601,7 +601,8 @@ export async function ozDegerlendir({ ayar, hafiza, aktifRepo, istek, cevap, gor
     if (v?.ders) await hafiza.dersEkle(v.ders, { kapsam: v.kapsam, etiketler: v.etiketler, repo: aktifRepo });
 
     const tum = await hafiza.dersler();
-    if (dersleriAyristir(tum).length > 60) await dersleriBirlestir({ ayar, hafiza, tum });
+    // Birleştirme uzun sürer ve sonucu bu görevin cevabını etkilemez: beklemeden arka planda çalışsın
+    if (dersleriAyristir(tum).length > 60) dersleriBirlestir({ ayar, hafiza, tum }).catch(() => {});
     return v?.ders || null;
   } catch {
     return null;
