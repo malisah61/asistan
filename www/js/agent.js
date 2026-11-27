@@ -583,6 +583,8 @@ function sureOzeti(gorev) {
 
 export async function ozDegerlendir({ ayar, hafiza, aktifRepo, istek, cevap, gorev }) {
   if (!gorev?.gunluk?.length) return null;
+  // Kısa ve sorunsuz işlerde ders çıkma olasılığı düşük: her görevde fazladan LLM çağrısı yapma
+  if (!dersDegerMi(gorev, cevap)) return null;
   const istem = [
     { role: 'system', content: 'Bir kodlama ajanının az önceki işini değerlendiriyorsun. Yalnızca JSON döndür.' },
     {
