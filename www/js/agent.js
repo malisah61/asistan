@@ -259,8 +259,8 @@ function kisaltBir(m, gorev) {
     if (m.role === 'tool' && m.content.length > 500 && !m.sikisti) {
       m.content = m.content.slice(0, 400) + `\n…(eski sonuç kısaltıldı; gerekirse yeniden oku)`;
       m.sikisti = true;
-      // İçerik artık bağlamda yok: bu dosya tekrar okunursa "zaten okudun" denmesin
-      if (m.okumaAnahtari && gorev?.okunan?.[m.okumaAnahtari]) gorev.okunan[m.okumaAnahtari].sikisti = true;
+      // İçerik artık bağlamda yok: bu dosya tekrar okunursa "zaten okudun" denmesin (önbellekten taze okunsun)
+      if (m.okumaAnahtari && gorev?.okumaOnbellek?.[m.okumaAnahtari]) gorev.okumaOnbellek[m.okumaAnahtari].sikisti = true;
     } else if (m.role === 'assistant' && m.tool_calls) {
       for (const c of m.tool_calls) {
         const a = jsonOnar(c.function.arguments);
