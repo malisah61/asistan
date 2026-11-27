@@ -504,6 +504,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
       return sonuc;
     };
     const okumaGrubu = async (bas) => {
+      // Yalnızca ARDIŞIK okumalar toplanır: araya giren yazma/silme sırayı bozar (dosyanın eski hali okunabilir)
       let son = bas;
       while (son < cagrilar.length && okumaMi(cagrilar[son].function?.name)) son++;
       if (son - bas < 2) return;
