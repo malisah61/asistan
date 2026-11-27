@@ -259,21 +259,32 @@ export async function calistir(ad, arg, ctx) {
         : metin;
     }
     case 'dosya_oku': {
+      // Önbellek: aynı dosya (repo#dal#yol) için son okunan içerik + sha + kapsanan satır aralığı.
+      // Amaç: aynı dosyayı farklı aralıklarla tekrar tekrar GitHub'dan çekmeyi ve bağlamı şişirmeyi önlemek.
+      const dosyaAnahtar = `${arg.repo}#${arg.dal || ''}#${arg.yol}`;
+      const onbellek = (ctx.gorev.okumaOnbellek ||= {});
+      const kayit = onbellek[dosyaAnahtar];
+      const istenenBas = Math.max(1, Number(arg.baslangic) || 1);
+      const istenenSon = Number(arg.bitis) || Infinity;
+
+      // 1) Önbellekteki içerik istenen aralığı kapsıyorsa ve bağlamda hâlâ duruyorsa API'ye hiç gitme
+      if (kayit && !kayit.sikisti && kayit.bas <= istenenBas && kayit.son >= istenenSon) {
+        return `(Bu dosyayı/bölümü ${kayit.adim}. adımda okudun ve o zamandan beri değişmedi; içeriği yukarıda. Yeniden okuma, devam et.)`;
+      }
+
       const r = await gh.dosyaOku(arg.repo, arg.yol, arg.dal);
       if (r.klasor) return 'Bu bir klasör:\n' + r.icerik.join('\n');
-      // Aynı dosyanın aynı bölümü değişmeden ve bağlamda hâlâ duruyorsa yeniden gönderme (bağlam şişmesin)
-      const anahtar = okumaAnahtari(arg);
-      const once = ctx.gorev.okunan?.[anahtar];
-      if (once && once.sha === r.sha && !once.sikisti) {
-        return `(Bu dosyayı/bölümü ${once.adim}. adımda okudun ve o zamandan beri değişmedi; içeriği yukarıda. Yeniden okuma, devam et.)`;
-      }
-      ctx.gorev.okunan = { ...(ctx.gorev.okunan || {}), [anahtar]: { sha: r.sha, adim: ctx.gorev.adim || 0 } };
       const satirlar = r.icerik.split('\n');
-      const bas = Math.max(1, Number(arg.baslangic) || 1);
-      const son = Math.min(satirlar.length, Number(arg.bitis) || satirlar.length);
+      const bas = Math.min(istenenBas, satirlar.length);
+      const son = Math.min(satirlar.length, istenenSon);
       const parca = satirlar.slice(bas - 1, son).map((l, i) => `${bas + i}\t${l}`).join('\n');
       const baslik = bas > 1 || son < satirlar.length ? `(${satirlar.length} satırın ${bas}-${son} arası)\n` : '';
-      return kisalt(baslik + parca);
+      const govde = kisalt(baslik + parca);
+      // Kısaltma olduysa yalnızca gerçekten gönderilen satırları kapsanmış say (yoksa eksik içeriği "okundu" sanır)
+      const kesildi = govde.length < baslik.length + parca.length;
+      const kapsananSon = kesildi ? bas + govde.split('\n').length - 2 : son;
+      onbellek[dosyaAnahtar] = { sha: r.sha, adim: ctx.gorev.adim || 0, bas, son: kapsananSon, sikisti: false };
+      return govde;
     }
     case 'kod_ara':
       return JSON.stringify(await gh.kodAra(arg.repo, arg.sorgu));
