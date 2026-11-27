@@ -20,13 +20,18 @@ function ortam(senaryo) {
   const dosyalar = { 'a.gd': 'eski satır\nbaşka', 'b.gd': 'b içerik', 'cok.gd': Array.from({ length: 60 }, (_, k) => `satır ${k + 1}`).join('\n') };
   let surum = 0;
   const gh = {
-    dosyaOku: async (repo, yol) => {
+    dosyaOku: async (repo, yol, dal, baslangic, bitis) => {
       if (yol === 'AGENTS.md') throw Object.assign(new Error('yok'), { status: 404 });
       if (yol.endsWith('.yml')) return { sha: 'w', icerik: WF };
       olay.push(`oku-bas ${yol}`);
       await new Promise((r) => setTimeout(r, 150));
       olay.push(`oku-bit ${yol}`);
-      return { sha: `${yol}@${surum}`, icerik: dosyalar[yol] ?? '' };
+      const tam = dosyalar[yol] ?? '';
+      const satirlar = tam.split('\n');
+      const icerik = baslangic || bitis
+        ? satirlar.slice((baslangic || 1) - 1, bitis || satirlar.length).join('\n')
+        : tam;
+      return { sha: `${yol}@${surum}`, icerik };
     },
     sha: async () => 'x',
     dosyaYaz: async (repo, yol, icerik) => { olay.push(`yaz ${yol}`); dosyalar[yol] = icerik; surum++; gh.sonCommit = 'c' + surum; return 'https://commit'; },
