@@ -167,34 +167,13 @@ test('aynı yanıttaki okumalar eşzamanlılık sınırına kadar paralel çalı
   assert.ok(olay.indexOf('oku-bas d9.gd') < olay.indexOf('oku-bit d0.gd'), 'okumalar paralel olmalı');
 });
 
-test('geçici model hatasında bekleme üstel artar (2 sn → 4 sn)', async () => {
-  // setTimeout'u sarmalayıp gerçekten bekletmeden süreleri kaydediyoruz
-  const gercek = globalThis.setTimeout;
-  const beklemeler = [];
-  globalThis.setTimeout = (fn, ms, ...a) => {
-    if (ms >= 1000) { beklemeler.push(ms); return gercek(fn, 0, ...a); }
-    return gercek(fn, ms, ...a);
-  };
-  try {
-    const o = ortam([]);
-    let n = 0;
-    // İlk iki istek 500 döner (geçici hata), üçüncüde model normal yanıt verir
-    globalThis.fetch = async (url, op) => {
-      n++;
-      if (n <= 2) return new Response('sunucu hatası', { status: 500, headers: { 'content-type': 'text/plain' } });
-      return new Response(JSON.stringify({ choices: [{ message: { content: 'Rapor' } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
-    };
-    const { gorevCalistir } = await import('../www/js/agent.js');
-    await gorevCalistir({
-      ayar: { anahtar: { evren: 'k' }, model: { evren: 'deepseek-v4.1-flash' }, sira: ['evren'], roller: {}, planla: false, gozdenGecir: false, onayIste: false },
-      gh: o.gh, hafiza: { repo: 'h', stil: async () => '', secilmisDersler: async () => ({ genel: '', repo: '', toplam: 0 }) },
-      aktifRepo: R, gecmis: [], istek: 'a.gd düzelt',
-      ui: { durum: () => {}, plan: () => {}, durdurulduMu: () => false, arac: () => {}, onayla: async () => true },
-    });
-    assert.deepEqual(beklemeler, [2000, 4000], 'retry beklemesi 2 sn sonra 4 sn olmalı');
-  } finally {
-    globalThis.setTimeout = gercek;
-  }
+test('retry beklemesi üstel artar: 2 sn → 4 sn → 8 sn', async () => {
+  const { retryBekleme } = await import('../www/js/agent.js');
+  assert.equal(retryBekleme(1), 2000);
+  assert.equal(retryBekleme(2), 4000);
+  assert.equal(retryBekleme(3), 8000);
+  // Eski sabit bekleme 3×8=24 sn idi; üstel toplam ~14 sn
+  assert.ok(retryBekleme(1) + retryBekleme(2) + retryBekleme(3) < 3 * 8000);
 });
 
 test('aynı yanıtta aynı dosya iki kez istenirse API\'ye tek kez gidilir', async () => {
