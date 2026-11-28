@@ -203,7 +203,7 @@ const boyut = (m) => (m.content?.length || 0) + JSON.stringify(m.tool_calls || '
 /** Uzun görevlerde eski araç sonuçlarını ve büyük dosya içeriklerini kısaltır. */
 // Her adımda bütün bağlam yeniden gönderiliyor; küçük tutmak EVREN'in her adımını hızlandırır
 // 35k'da dört dosya bile sığmıyordu: kısaltılan dosyalar tekrar tekrar okunup turlar artıyordu (25 Kasım, 123 okuma)
-const BAGLAM_SINIRI = 60_000;
+const BAGLAM_SINIRI = 80_000;
 // Kısa istekler (ör. "devam et", tek satırlık düzeltme) için ayrı plan isteği yapılmaz
 const PLAN_ESIGI = 60;
 
