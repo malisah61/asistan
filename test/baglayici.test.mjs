@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { McpIstemci, baglayicilariYukle, aracAdi } from '../www/js/mcp.js';
-import { bingAyristir, godotXmlOzet } from '../www/js/tools.js';
+import { bingAyristir, googleAyristir, godotXmlOzet } from '../www/js/tools.js';
 
 const json = (j, h = {}) => new Response(JSON.stringify(j), { status: 200, headers: { 'content-type': 'application/json', ...h } });
 
@@ -50,6 +50,19 @@ test('Bing sonuçları ayrıştırılır, yönlendirme linki çözülür', () =>
   assert.deepEqual(bingAyristir(html), [
     { baslik: 'Godot Docs', url: 'https://docs.godotengine.org/en/4.3/', ozet: 'Official & free' },
     { baslik: 'Düz', url: 'https://example.com/a', ozet: '' },
+  ]);
+});
+
+test('Google sonuçları ayrıştırılır: /url?q= ve h3 kalıbı, reklam ve tekrar elenir', () => {
+  const html = `<div class="g"><a href="/url?q=https://tr.wikipedia.org/wiki/Candy_Crush_Saga&amp;sa=U&amp;ved=x">` +
+    `<h3>Candy Crush Saga - Vikipedi</h3></a></div>` +
+    `<div class="g"><a href="https://www.king.com/games/candy-crush/"><h3>Candy Crush - King</h3></a></div>` +
+    `<div class="g"><a href="https://www.king.com/games/candy-crush/"><h3>Candy Crush - King (tekrar)</h3></a></div>` +
+    `<div class="g"><a href="https://www.google.com/url?q=https://ads.example.com"><h3>Reklam</h3></a></div>` +
+    `<div class="g"><a href="https://example.com/duz">Başlıksız bağlantı</a></div>`;
+  assert.deepEqual(googleAyristir(html), [
+    { baslik: 'Candy Crush Saga - Vikipedi', url: 'https://tr.wikipedia.org/wiki/Candy_Crush_Saga', ozet: '' },
+    { baslik: 'Candy Crush - King', url: 'https://www.king.com/games/candy-crush/', ozet: '' },
   ]);
 });
 
