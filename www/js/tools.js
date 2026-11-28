@@ -642,7 +642,7 @@ export function ddgAyristir(html) {
       try { url = decodeURIComponent(u[1]); } catch { continue; }
     }
     if (url.startsWith('//')) url = 'https:' + url;
-    const baslik = varlikCoz(a[2]);
+    const baslik = varlikCoz(a[2].replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
     if (!/^https?:\/\//.test(url) || !baslik || gorulen.has(url)) continue;
     if (/^https?:\/\/([^/]*\.)?duckduckgo\.com\//.test(url)) continue;
     gorulen.add(url);
