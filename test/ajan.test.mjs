@@ -37,6 +37,8 @@ function ortam(senaryo) {
     dosyaYaz: async (repo, yol, icerik) => { olay.push(`yaz ${yol}`); dosyalar[yol] = icerik; surum++; gh.sonCommit = 'c' + surum; return 'https://commit'; },
     sonCommit: 'c0',
     dalSonCommit: async () => gh.sonCommit,
+    kodAra: async (repo, sorgu) => { olay.push(`ara ${sorgu}`); return [{ yol: 'a.gd', satir: 1 }]; },
+    agac: async () => { olay.push('agac'); return ['a.gd', 'b.gd']; },
     calismalar: async () => [{ ad: 'kontrol', durum: 'completed', sonuc: 'success' }],
     calismaBaslat: async () => 'Başlatıldı',
     yeniCalisma: async () => ({ id: 1, url: 'https://run/1' }),
