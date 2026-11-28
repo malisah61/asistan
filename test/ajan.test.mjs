@@ -37,6 +37,8 @@ function ortam(senaryo) {
     dosyaYaz: async (repo, yol, icerik) => { olay.push(`yaz ${yol}`); dosyalar[yol] = icerik; surum++; gh.sonCommit = 'c' + surum; return 'https://commit'; },
     sonCommit: 'c0',
     dalSonCommit: async () => gh.sonCommit,
+    kodAra: async (repo, sorgu) => { olay.push(`ara ${sorgu}`); return [{ yol: 'a.gd', satir: 1 }]; },
+    agac: async () => { olay.push('agac'); return ['a.gd', 'b.gd']; },
     calismalar: async () => [{ ad: 'kontrol', durum: 'completed', sonuc: 'success' }],
     calismaBaslat: async () => 'Başlatıldı',
     yeniCalisma: async () => ({ id: 1, url: 'https://run/1' }),
@@ -174,6 +176,26 @@ test('retry beklemesi üstel artar: 2 sn → 4 sn → 8 sn', async () => {
   assert.equal(retryBekleme(3), 8000);
   // Eski sabit bekleme 3×8=24 sn idi; üstel toplam ~14 sn
   assert.ok(retryBekleme(1) + retryBekleme(2) + retryBekleme(3) < 3 * 8000);
+});
+
+test('aynı kod_ara sorgusu ikinci kez GitHub\'a gitmez', async () => {
+  const { olay } = await calistir([
+    [cagri('kod_ara', { repo: R, sorgu: 'gorevCalistir' })],
+    [cagri('kod_ara', { repo: R, sorgu: 'gorevCalistir' })],
+    'Rapor',
+  ]);
+  assert.equal(olay.filter((x) => x === 'ara gorevCalistir').length, 1, 'aynı arama tek istek olmalı');
+});
+
+test('dosya_agaci ikinci kez GitHub\'a gitmez, yazma sonrası tazelenir', async () => {
+  const { olay } = await calistir([
+    [cagri('dosya_agaci', { repo: R })],
+    [cagri('dosya_agaci', { repo: R })],
+    [cagri('dosya_yaz', { repo: R, yol: 'yeni.gd', dal: 'asistan/x', icerik: 'x', mesaj: 'm' })],
+    [cagri('dosya_agaci', { repo: R })],
+    'Rapor',
+  ]);
+  assert.equal(olay.filter((x) => x === 'agac').length, 2, 'yazma sonrası ağaç tazelenmeli');
 });
 
 test('aynı yanıtta aynı dosya iki kez istenirse API\'ye tek kez gidilir', async () => {
