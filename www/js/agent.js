@@ -203,7 +203,7 @@ const boyut = (m) => (m.content?.length || 0) + JSON.stringify(m.tool_calls || '
 /** Uzun görevlerde eski araç sonuçlarını ve büyük dosya içeriklerini kısaltır. */
 // Her adımda bütün bağlam yeniden gönderiliyor; küçük tutmak EVREN'in her adımını hızlandırır
 // 35k'da dört dosya bile sığmıyordu: kısaltılan dosyalar tekrar tekrar okunup turlar artıyordu (25 Kasım, 123 okuma)
-const BAGLAM_SINIRI = 60_000;
+const BAGLAM_SINIRI = 80_000;
 // Kısa istekler (ör. "devam et", tek satırlık düzeltme) için ayrı plan isteği yapılmaz
 const PLAN_ESIGI = 60;
 
@@ -305,7 +305,8 @@ function oncekiOzeti(onceki) {
 
 const GECICI_HATA = /yanıt vermedi|fetch failed|network|ECONNRESET|HTTP 5\d\d|HTTP 429/i;
 const AG_HATA_DENEME = 3;
-const AG_BEKLEME = 30_000;
+// 30 sn'lik ilk bekleme, geçici bir 429/5xx'te görevi dakikalarca durduruyordu; üstel geri çekilme yeterli
+const AG_BEKLEME = 8_000;
 
 /**
  * ui: { durum(t), arac(ad, arg, sonuc), onayla(ad, ozet), durdurulduMu(), plan(maddeler) }
@@ -490,7 +491,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
     };
     const hazir = new Map(); // çağrı sırası → önceden (paralel) alınmış sonuç
     // GitHub API rate limit'ini tetiklememek için aynı anda en fazla bu kadar okuma yapılır
-    const ESZAMANLI_OKUMA = 6;
+    const ESZAMANLI_OKUMA = 10;
     const eszamanli = async (isler, sinir) => {
       const sonuc = new Array(isler.length);
       let i = 0;

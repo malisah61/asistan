@@ -154,6 +154,19 @@ test('dersDegerMi: kısa ve hatasız işte öz değerlendirme atlanır, hatalı/
   assert.equal(dersDegerMi(g(), 'Bunu yapamadım.'), true, 'cevapta başarısızlık varsa değerlendirilmeli');
 });
 
+test('aynı yanıttaki okumalar eşzamanlılık sınırına kadar paralel çalışır', async () => {
+  // 10 dosya tek yanıtta istenir: sınır 10 olduğu için hepsi aynı anda başlamalı (tek tek değil)
+  const yollar = Array.from({ length: 10 }, (_, k) => `d${k}.gd`);
+  const { olay } = await calistir([
+    yollar.map((y) => cagri('dosya_oku', { repo: R, yol: y })),
+    'Rapor',
+  ]);
+  const baslar = olay.filter((x) => x.startsWith('oku-bas '));
+  assert.equal(baslar.length, 10);
+  // İlk dosyanın okuması bitmeden son dosyanın okuması başlamışsa gerçekten paraleldir
+  assert.ok(olay.indexOf('oku-bas d9.gd') < olay.indexOf('oku-bit d0.gd'), 'okumalar paralel olmalı');
+});
+
 test('aynı yanıtta aynı dosya iki kez istenirse API\'ye tek kez gidilir', async () => {
   const { olay } = await calistir([
     [cagri('dosya_oku', { repo: R, yol: 'b.gd' }), cagri('dosya_oku', { repo: R, yol: 'b.gd' })],
