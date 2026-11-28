@@ -305,8 +305,15 @@ function oncekiOzeti(onceki) {
 
 const GECICI_HATA = /yanıt vermedi|fetch failed|network|ECONNRESET|HTTP 5\d\d|HTTP 429/i;
 const AG_HATA_DENEME = 3;
-// 30 sn'lik ilk bekleme, geçici bir 429/5xx'te görevi dakikalarca durduruyordu; üstel geri çekilme yeterli
-const AG_BEKLEME = 8_000;
+// 30 sn'lik sabit bekleme, geçici bir 429/5xx'te görevi dakikalarca durduruyordu.
+// Üstel geri çekilme: 2 sn → 4 sn → 8 sn (toplam ~14 sn, eskiden 3×8=24 sn).
+const AG_BEKLEME = 2_000;
+const AG_BEKLEME_CARPAN = 2;
+
+/** n. denemeden (1'den başlar) önceki bekleme: 2 sn, 4 sn, 8 sn… */
+export function retryBekleme(n) {
+  return AG_BEKLEME * AG_BEKLEME_CARPAN ** (n - 1);
+}
 
 /**
  * ui: { durum(t), arac(ad, arg, sonuc), onayla(ad, ozet), durdurulduMu(), plan(maddeler) }
@@ -436,8 +443,9 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
       // Sunucu geçici olarak yanıt vermediyse tüm görevi bırakma: biraz bekleyip aynı adımı tekrar dene
       if (GECICI_HATA.test(e.message) && agHataSayisi < AG_HATA_DENEME && !ui.durdurulduMu()) {
         agHataSayisi++;
-        ui.durum(`Model yanıt vermedi, ${AG_BEKLEME / 1000} sn sonra tekrar deneniyor (${agHataSayisi}/${AG_HATA_DENEME})…`);
-        await new Promise((r) => setTimeout(r, AG_BEKLEME));
+        const bekleme = retryBekleme(agHataSayisi);
+        ui.durum(`Model yanıt vermedi, ${bekleme / 1000} sn sonra tekrar deneniyor (${agHataSayisi}/${AG_HATA_DENEME})…`);
+        await new Promise((r) => setTimeout(r, bekleme));
         continue;
       }
       throw e;

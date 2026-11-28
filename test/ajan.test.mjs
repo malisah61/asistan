@@ -167,6 +167,15 @@ test('aynı yanıttaki okumalar eşzamanlılık sınırına kadar paralel çalı
   assert.ok(olay.indexOf('oku-bas d9.gd') < olay.indexOf('oku-bit d0.gd'), 'okumalar paralel olmalı');
 });
 
+test('retry beklemesi üstel artar: 2 sn → 4 sn → 8 sn', async () => {
+  const { retryBekleme } = await import('../www/js/agent.js');
+  assert.equal(retryBekleme(1), 2000);
+  assert.equal(retryBekleme(2), 4000);
+  assert.equal(retryBekleme(3), 8000);
+  // Eski sabit bekleme 3×8=24 sn idi; üstel toplam ~14 sn
+  assert.ok(retryBekleme(1) + retryBekleme(2) + retryBekleme(3) < 3 * 8000);
+});
+
 test('aynı yanıtta aynı dosya iki kez istenirse API\'ye tek kez gidilir', async () => {
   const { olay } = await calistir([
     [cagri('dosya_oku', { repo: R, yol: 'b.gd' }), cagri('dosya_oku', { repo: R, yol: 'b.gd' })],
