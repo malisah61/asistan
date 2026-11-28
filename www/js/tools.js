@@ -602,6 +602,29 @@ export function bingAyristir(html) {
   return sonuc;
 }
 
+/** Google sonuç sayfasını ayrıştırır. Google HTML'i sık değişir; iki bilinen kalıbı da dener. */
+export function googleAyristir(html) {
+  const sonuc = [];
+  const gorulen = new Set();
+  const ekle = (url, baslik, ozet) => {
+    const temiz = varlikCoz(baslik || '');
+    if (!/^https?:\/\//.test(url) || !temiz || gorulen.has(url)) return;
+    if (/^https?:\/\/(www\.)?google\.[a-z.]+\//.test(url)) return;
+    gorulen.add(url);
+    sonuc.push({ baslik: temiz, url, ozet: varlikCoz(ozet || '') });
+  };
+  // Kalıp 1: /url?q=<adres>&... (klasik sonuç bağlantısı)
+  for (const m of html.matchAll(/<a [^>]*href="\/url\?q=([^"&]+)[^"]*"[^>]*>([\s\S]*?)<\/a>/g)) {
+    ekle(decodeURIComponent(m[1]), m[2], '');
+  }
+  // Kalıp 2: doğrudan https bağlantı + <h3> başlık (yeni düzen)
+  for (const m of html.matchAll(/<a [^>]*href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/g)) {
+    if (!/<h3/i.test(m[2])) continue;
+    ekle(m[1].replace(/&amp;/g, '&'), m[2], '');
+  }
+  return sonuc;
+}
+
 async function webAra(sorgu, ortam) {
   if (!sorgu) return 'HATA: sorgu boş.';
   const kaynaklar = [
@@ -613,6 +636,13 @@ async function webAra(sorgu, ortam) {
       });
       return r.ok ? ((await r.json()).data || []).map((x) => ({ baslik: x.title, url: x.url, ozet: x.description || '' })) : [];
     }),
+    // Google birincil: anahtarsız, en iyi kapsama; CAPTCHA/429 gelirse sıradakine düşülür
+    async () => {
+      const r = await fetch(`https://www.google.com/search?q=${encodeURIComponent(sorgu)}&hl=en&num=10`, {
+        headers: { 'User-Agent': UA, 'Accept-Language': 'en,tr;q=0.8' }, signal: AbortSignal.timeout(WEB_SURE),
+      });
+      return r.ok ? googleAyristir(await r.text()) : [];
+    },
     async () => {
       const r = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(sorgu)}&setlang=en`, {
         headers: { 'User-Agent': UA, 'Accept-Language': 'en,tr;q=0.8' }, signal: AbortSignal.timeout(WEB_SURE),
