@@ -622,9 +622,12 @@ export function googleAyristir(html) {
     if (!/<h3/i.test(m[2])) continue;
     ekle(m[1].replace(/&amp;/g, '&'), m[2], '');
   }
-  // Kalıp 3: /url?q= bağlantısı ile <h3> başlık ayrı etiketlerde (JS ile kurulan sonuç listesi)
-  for (const m of html.matchAll(/href="\/url\?q=([^"&]+)[^"]*"[\s\S]{0,400}?<h3[^>]*>([\s\S]*?)<\/h3>/g)) {
-    ekle(decodeURIComponent(m[1]), m[2], '');
+  // Kalıp 3: bağlantı ile <h3> başlık ayrı etiketlerde (JS ile kurulan sonuç listesi).
+  // Önce bağlantıyı, sonraki 400 karakter içindeki ilk h3'ü başlık sayar.
+  for (const m of html.matchAll(/href="(\/url\?q=[^"]+|https?:\/\/[^"]+)"[\s\S]{0,400}?<h3[^>]*>([\s\S]*?)<\/h3>/g)) {
+    const ham = m[1].replace(/&amp;/g, '&');
+    const url = ham.startsWith('/url?q=') ? decodeURIComponent(ham.slice(7).split('&')[0]) : ham;
+    ekle(url, m[2], '');
   }
   return sonuc;
 }
