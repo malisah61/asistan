@@ -443,7 +443,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
       // Sunucu geçici olarak yanıt vermediyse tüm görevi bırakma: biraz bekleyip aynı adımı tekrar dene
       if (GECICI_HATA.test(e.message) && agHataSayisi < AG_HATA_DENEME && !ui.durdurulduMu()) {
         agHataSayisi++;
-        const bekleme = AG_BEKLEME * AG_BEKLEME_CARPAN ** (agHataSayisi - 1);
+        const bekleme = retryBekleme(agHataSayisi);
         ui.durum(`Model yanıt vermedi, ${bekleme / 1000} sn sonra tekrar deneniyor (${agHataSayisi}/${AG_HATA_DENEME})…`);
         await new Promise((r) => setTimeout(r, bekleme));
         continue;
