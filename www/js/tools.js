@@ -113,6 +113,18 @@ const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const kisalt = (s) => (s.length > MAKS ? s.slice(0, MAKS) + `\n…(${s.length - MAKS} karakter kesildi; baslangic/bitis ile parça parça oku)` : s);
 
+/** Yazma/silme sonrası bayat kalan okuma önbelleklerini düşürür (dosya, harita, ağaç, arama). */
+function onbellekGecersiz(ctx, repo, dal, yol) {
+  const onbellek = ctx.gorev.okumaOnbellek;
+  if (!onbellek) return;
+  delete onbellek[`${repo}#${dal || ''}#${yol}`];
+  for (const anahtar of Object.keys(onbellek)) {
+    if (anahtar.startsWith(`harita#${repo}#`) || anahtar.startsWith(`agac#${repo}#`) || anahtar.startsWith(`ara#${repo}#`)) {
+      delete onbellek[anahtar];
+    }
+  }
+}
+
 async function eskiIcerik(gh, repo, yol, dal) {
   try {
     return (await gh.dosyaOku(repo, yol, dal)).icerik;
