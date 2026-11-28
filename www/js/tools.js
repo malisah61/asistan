@@ -651,7 +651,7 @@ export function ddgAyristir(html) {
   }
   // lite.duckduckgo.com düzeni: <a class="result-link" href="...">başlık</a> + <td class="result-snippet">
   for (const m of html.matchAll(/<a[^>]*class=['"]result-link['"][^>]*>([\s\S]*?)<\/a>/g)) {
-    const href = m[1].match(/href="([^"]+)"/);
+    const href = m[0].match(/href="([^"]+)"/);
     if (!href) continue;
     let url = href[1].replace(/&amp;/g, '&');
     const u = url.match(/[?&]uddg=([^&]+)/);
