@@ -623,7 +623,7 @@ export function googleAyristir(html) {
     ekle(m[1].replace(/&amp;/g, '&'), m[2], '');
   }
   // Kalıp 3: bağlantı ile <h3> başlık ayrı etiketlerde (JS ile kurulan sonuç listesi).
-  // Önce bağlantıyı, sonraki 400 karakter içindeki ilk h3'ü başlık sayar.
+  // Bağlantıdan sonraki 400 karakter içindeki ilk h3 başlık sayılır.
   for (const m of html.matchAll(/href="(\/url\?q=[^"]+|https?:\/\/[^"]+)"[\s\S]{0,400}?<h3[^>]*>([\s\S]*?)<\/h3>/g)) {
     const ham = m[1].replace(/&amp;/g, '&');
     const url = ham.startsWith('/url?q=') ? decodeURIComponent(ham.slice(7).split('&')[0]) : ham;
