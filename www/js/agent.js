@@ -310,6 +310,11 @@ const AG_HATA_DENEME = 3;
 const AG_BEKLEME = 2_000;
 const AG_BEKLEME_CARPAN = 2;
 
+/** n. denemeden (1'den başlar) önceki bekleme: 2 sn, 4 sn, 8 sn… */
+export function retryBekleme(n) {
+  return AG_BEKLEME * AG_BEKLEME_CARPAN ** (n - 1);
+}
+
 /**
  * ui: { durum(t), arac(ad, arg, sonuc), onayla(ad, ozet), durdurulduMu(), plan(maddeler) }
  */
