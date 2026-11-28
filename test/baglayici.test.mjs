@@ -66,6 +66,14 @@ test('Google sonuçları ayrıştırılır: /url?q= ve h3 kalıbı, reklam ve te
   ]);
 });
 
+test('Google: h3 içinde ek etiket olsa da başlık temizlenir', () => {
+  const html = `<div class="g"><a href="/url?q=https://en.wikipedia.org/wiki/Candy_Crush_Saga&amp;sa=U">` +
+    `<br><h3 class="LC20lb">Candy <em>Crush</em> Saga</h3></a></div>`;
+  assert.deepEqual(googleAyristir(html), [
+    { baslik: 'Candy Crush Saga', url: 'https://en.wikipedia.org/wiki/Candy_Crush_Saga', ozet: '' },
+  ]);
+});
+
 test('Godot XML referansı imzalarla özetlenir', () => {
   const xml = `<class name="CharacterBody2D" inherits="PhysicsBody2D">
   <brief_description>A 2D physics body specialized for characters moved by script.</brief_description>

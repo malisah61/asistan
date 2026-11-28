@@ -638,10 +638,20 @@ async function webAra(sorgu, ortam) {
     }),
     // Google birincil: anahtarsız, en iyi kapsama; CAPTCHA/429 gelirse sıradakine düşülür
     async () => {
-      const r = await fetch(`https://www.google.com/search?q=${encodeURIComponent(sorgu)}&hl=en&num=10`, {
-        headers: { 'User-Agent': UA, 'Accept-Language': 'en,tr;q=0.8' }, signal: AbortSignal.timeout(WEB_SURE),
-      });
-      return r.ok ? googleAyristir(await r.text()) : [];
+      // consent.google.com yönlendirmesi sonuçsuz sayfa döndürüyor; çerezle kabul edilmiş sayılıyor
+      for (const adres of [
+        `https://www.google.com/search?q=${encodeURIComponent(sorgu)}&hl=en&num=10`,
+        `https://www.google.com/search?q=${encodeURIComponent(sorgu)}&hl=en&num=10&gbv=1`,
+      ]) {
+        const r = await fetch(adres, {
+          headers: { 'User-Agent': UA, 'Accept-Language': 'en,tr;q=0.8', Cookie: 'CONSENT=YES+cb; SOCS=CAI' },
+          signal: AbortSignal.timeout(WEB_SURE),
+        });
+        if (!r.ok) continue;
+        const liste = googleAyristir(await r.text());
+        if (liste.length) return liste;
+      }
+      return [];
     },
     async () => {
       const r = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(sorgu)}&setlang=en`, {
