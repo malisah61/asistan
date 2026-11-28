@@ -649,6 +649,19 @@ export function ddgAyristir(html) {
     const ozet = varlikCoz((parca.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/) || [])[1] || '');
     sonuc.push({ baslik, url, ozet });
   }
+  // lite.duckduckgo.com düzeni: <a class="result-link" href="...">başlık</a> + <td class="result-snippet">
+  for (const m of html.matchAll(/<a[^>]*class="result-link"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)) {
+    let url = m[1].replace(/&amp;/g, '&');
+    const u = url.match(/[?&]uddg=([^&]+)/);
+    if (u) {
+      try { url = decodeURIComponent(u[1]); } catch { continue; }
+    }
+    if (url.startsWith('//')) url = 'https:' + url;
+    const baslik = varlikCoz(m[2]);
+    if (!/^https?:\/\//.test(url) || !baslik || gorulen.has(url)) continue;
+    gorulen.add(url);
+    sonuc.push({ baslik, url, ozet: '' });
+  }
   return sonuc;
 }
 
