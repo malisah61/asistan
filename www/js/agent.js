@@ -490,7 +490,7 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
     };
     const hazir = new Map(); // çağrı sırası → önceden (paralel) alınmış sonuç
     // GitHub API rate limit'ini tetiklememek için aynı anda en fazla bu kadar okuma yapılır
-    const ESZAMANLI_OKUMA = 6;
+    const ESZAMANLI_OKUMA = 10;
     const eszamanli = async (isler, sinir) => {
       const sonuc = new Array(isler.length);
       let i = 0;
