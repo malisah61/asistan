@@ -650,7 +650,12 @@ export function ddgAyristir(html) {
     sonuc.push({ baslik, url, ozet });
   }
   // lite.duckduckgo.com düzeni: <a class="result-link" href="...">başlık</a> + <td class="result-snippet">
-  for (const m of html.matchAll(/<a[^>]*class="result-link"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)) {
+  for (const m of html.matchAll(/<a[^>]*class=['"]result-link['"][^>]*>([\s\S]*?)<\/a>/g)) {
+    const href = m[1].match(/href="([^"]+)"/);
+    if (!href) continue;
+    m[1] = m[1].replace(/<[^>]*>/g, '');
+    m[2] = m[1];
+    m[1] = href[1];
     let url = m[1].replace(/&amp;/g, '&');
     const u = url.match(/[?&]uddg=([^&]+)/);
     if (u) {
