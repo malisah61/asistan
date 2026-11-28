@@ -83,6 +83,12 @@
         <input id="asistanRepo" placeholder="kullanıcı/asistan" />
       </label>
 
+      <h3>İnternet araması <small>(Gemini)</small></h3>
+      <label>Gemini API anahtarı <small>web_ara bununla Google'da arar</small>
+        <input id="geminiKey" type="password" autocomplete="off" placeholder="AIza…" />
+      </label>
+      <p class="not">Anahtar yalnızca bu cihazın tarayıcı hafızasında (localStorage) düz metin olarak durur; hiçbir repoya yazılmaz. Ortak kullanılan bir cihazda girmeyin. Anahtar yoksa web_ara çalışmaz ve açık hata verir.</p>
+
       <h3>Bulut kurulumu</h3>
       <div id="bulutDurum" class="kutu"><span class="not">Kontrol için dokun.</span></div>
       <button id="bulutKontrol">Kontrol et</button>
