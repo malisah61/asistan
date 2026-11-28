@@ -247,11 +247,25 @@ export async function calistir(ad, arg, ctx) {
       return await ctx.altAjan({ gorev: arg.gorev, repo: arg.repo });
     case 'repolari_listele':
       return JSON.stringify(await gh.repolar());
-    case 'repo_haritasi':
-      return await repoHaritasi(gh, arg.repo, arg.dal, { durum: ctx.durum });
+    case 'repo_haritasi': {
+      // Harita görev boyunca değişmez (yazma olursa önbellek temizlenir): aynı repo için ikinci kez GitHub'a gitme
+      const anahtar = `harita#${arg.repo}#${arg.dal || ''}`;
+      const onbellek = (ctx.gorev.okumaOnbellek ||= {});
+      if (onbellek[anahtar] !== undefined) return onbellek[anahtar];
+      const harita = await repoHaritasi(gh, arg.repo, arg.dal, { durum: ctx.durum });
+      onbellek[anahtar] = harita;
+      return harita;
+    }
     case 'dosya_agaci': {
       const onek = (arg.klasor || '').replace(/^\/+/, '');
-      const liste = (await gh.agac(arg.repo, arg.dal)).filter((d) => !onek || d.startsWith(onek));
+      const anahtar = `agac#${arg.repo}#${arg.dal || ''}`;
+      const onbellek = (ctx.gorev.okumaOnbellek ||= {});
+      let tumu = onbellek[anahtar];
+      if (!tumu) {
+        tumu = await gh.agac(arg.repo, arg.dal);
+        onbellek[anahtar] = tumu;
+      }
+      const liste = tumu.filter((d) => !onek || d.startsWith(onek));
       if (!liste.length) return onek ? `"${onek}" altında dosya yok. Üst klasörü listele.` : 'Repo boş.';
       const metin = liste.join('\n');
       return metin.length > MAKS
