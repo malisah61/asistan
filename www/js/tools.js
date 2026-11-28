@@ -659,7 +659,7 @@ export function ddgAyristir(html) {
       try { url = decodeURIComponent(u[1]); } catch { continue; }
     }
     if (url.startsWith('//')) url = 'https:' + url;
-    const baslik = varlikCoz(m[1].replace(/<[^>]*>/g, ''));
+    const baslik = varlikCoz(m[1].replace(/<[^>]*>/g, ' '));
     if (!/^https?:\/\//.test(url) || !baslik || gorulen.has(url)) continue;
     gorulen.add(url);
     sonuc.push({ baslik, url, ozet: '' });
