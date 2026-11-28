@@ -302,8 +302,13 @@ export async function calistir(ad, arg, ctx) {
       onbellek[dosyaAnahtar] = { sha: r.sha, adim: ctx.gorev.adim || 0, bas, son: kapsananSon, toplam: satirlar.length, sikisti: false };
       return govde;
     }
-    case 'kod_ara':
-      return JSON.stringify(await gh.kodAra(arg.repo, arg.sorgu));
+    case 'kod_ara': {
+      // Aynı sorgu görev içinde tekrar edilirse GitHub arama kotasını (dakikada 10) boşa harcama
+      const anahtar = `ara#${arg.repo}#${arg.sorgu}`;
+      const onbellek = (ctx.gorev.okumaOnbellek ||= {});
+      if (onbellek[anahtar] === undefined) onbellek[anahtar] = JSON.stringify(await gh.kodAra(arg.repo, arg.sorgu));
+      return onbellek[anahtar];
+    }
     case 'plan_guncelle': {
       const maddeler = (Array.isArray(arg.maddeler) ? arg.maddeler : [])
         .map((m) => (typeof m === 'string' ? { metin: m, durum: 'bekliyor' } : m))
