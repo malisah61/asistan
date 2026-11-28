@@ -305,7 +305,8 @@ function oncekiOzeti(onceki) {
 
 const GECICI_HATA = /yanıt vermedi|fetch failed|network|ECONNRESET|HTTP 5\d\d|HTTP 429/i;
 const AG_HATA_DENEME = 3;
-const AG_BEKLEME = 30_000;
+// 30 sn'lik ilk bekleme, geçici bir 429/5xx'te görevi dakikalarca durduruyordu; üstel geri çekilme yeterli
+const AG_BEKLEME = 8_000;
 
 /**
  * ui: { durum(t), arac(ad, arg, sonuc), onayla(ad, ozet), durdurulduMu(), plan(maddeler) }
