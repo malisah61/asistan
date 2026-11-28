@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { McpIstemci, baglayicilariYukle, aracAdi } from '../www/js/mcp.js';
-import { bingAyristir, godotXmlOzet } from '../www/js/tools.js';
+import { bingAyristir, googleAyristir, godotXmlOzet } from '../www/js/tools.js';
 
 const json = (j, h = {}) => new Response(JSON.stringify(j), { status: 200, headers: { 'content-type': 'application/json', ...h } });
 
