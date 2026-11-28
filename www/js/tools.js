@@ -622,6 +622,10 @@ export function googleAyristir(html) {
     if (!/<h3/i.test(m[2])) continue;
     ekle(m[1].replace(/&amp;/g, '&'), m[2], '');
   }
+  // Kalıp 3: /url?q= bağlantısı ile <h3> başlık ayrı etiketlerde (JS ile kurulan sonuç listesi)
+  for (const m of html.matchAll(/href="\/url\?q=([^"&]+)[^"]*"[\s\S]{0,400}?<h3[^>]*>([\s\S]*?)<\/h3>/g)) {
+    ekle(decodeURIComponent(m[1]), m[2], '');
+  }
   return sonuc;
 }
 
