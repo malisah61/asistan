@@ -53,6 +53,19 @@ test('Bing sonuçları ayrıştırılır, yönlendirme linki çözülür', () =>
   ]);
 });
 
+test('Google sonuçları ayrıştırılır: /url?q= ve h3 kalıbı, reklam ve tekrar elenir', () => {
+  const html = `<div class="g"><a href="/url?q=https://tr.wikipedia.org/wiki/Candy_Crush_Saga&amp;sa=U&amp;ved=x">` +
+    `<h3>Candy Crush Saga - Vikipedi</h3></a></div>` +
+    `<div class="g"><a href="https://www.king.com/games/candy-crush/"><h3>Candy Crush - King</h3></a></div>` +
+    `<div class="g"><a href="https://www.king.com/games/candy-crush/"><h3>Candy Crush - King (tekrar)</h3></a></div>` +
+    `<div class="g"><a href="https://www.google.com/url?q=https://ads.example.com"><h3>Reklam</h3></a></div>` +
+    `<div class="g"><a href="https://example.com/duz">Başlıksız bağlantı</a></div>`;
+  assert.deepEqual(googleAyristir(html), [
+    { baslik: 'Candy Crush Saga - Vikipedi', url: 'https://tr.wikipedia.org/wiki/Candy_Crush_Saga', ozet: '' },
+    { baslik: 'Candy Crush - King', url: 'https://www.king.com/games/candy-crush/', ozet: '' },
+  ]);
+});
+
 test('Godot XML referansı imzalarla özetlenir', () => {
   const xml = `<class name="CharacterBody2D" inherits="PhysicsBody2D">
   <brief_description>A 2D physics body specialized for characters moved by script.</brief_description>
