@@ -29,6 +29,7 @@ const yaz = (k, v) => {
 const BULUT_ALANLARI = ['model', 'roller', 'planla', 'gozdenGecir', 'onayIste', 'ozDeg', 'maksAdim', 'baglayicilar'];
 const VARSAYILAN = {
   ghToken: '',
+  geminiKey: '',
   hafizaRepo: '',
   asistanRepo: '',
   aktifRepo: '',
