@@ -5,6 +5,10 @@ import { sohbet, jsonOnar, metindenAracCagrilari, olcum } from './llm.js';
 import { ARACLAR, ARAC_ADLARI, OKUMA, calistir } from './tools.js';
 import { repoHaritasi } from './kontrol.js';
 
+// Planlayıcı turu yalnızca kod değişikliği isteyen işlerde harcanır; soru/sohbet istekleri
+// doğrudan uygulayıcıya gider (bir LLM turu tasarrufu)
+const KOD_ISTEGI = /ekle|düzelt|değiştir|güncelle|yaz|oluştur|kaldır|sil|taşı|yeniden adlandır|refactor|düzenle|uygula|kur|hata|bug|fix|add|update|change|remove|create|implement|refactor/i;
+
 const YEDEK_STIL = `Önce oku ve anla, sonra planla, sonra küçük adımlarla değiştir.
 Değiştirmeden önce dosyayı mutlaka oku. Varsayım yapma; emin değilsen kullanıcıya sor.
 Ana dala doğrudan yazma: dal aç, commit at, kontrol_bekle ile doğrula, PR aç.`;
