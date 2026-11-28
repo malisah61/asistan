@@ -625,6 +625,48 @@ export function googleAyristir(html) {
   return sonuc;
 }
 
+/**
+ * DuckDuckGo HTML sonuç sayfasını ayrıştırır. Google/Bing sunucu IP'lerinden CAPTCHA/consent
+ * döndürürken bu uç nokta anahtarsız ve sorguya özel sonuç veriyor.
+ */
+export function ddgAyristir(html) {
+  const sonuc = [];
+  const gorulen = new Set();
+  for (const parca of html.split('class="result__a"').slice(1)) {
+    const a = parca.match(/^\s*[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+    if (!a) continue;
+    let url = a[1].replace(/&amp;/g, '&');
+    // DDG yönlendirme linki: //duckduckgo.com/l/?uddg=<kodlanmış adres>
+    const u = url.match(/[?&]uddg=([^&]+)/);
+    if (u) {
+      try { url = decodeURIComponent(u[1]); } catch { continue; }
+    }
+    if (url.startsWith('//')) url = 'https:' + url;
+    const baslik = varlikCoz(a[2].replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
+    if (!/^https?:\/\//.test(url) || !baslik || gorulen.has(url)) continue;
+    if (/^https?:\/\/([^/]*\.)?duckduckgo\.com\//.test(url)) continue;
+    gorulen.add(url);
+    const ozet = varlikCoz((parca.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/) || [])[1] || '');
+    sonuc.push({ baslik, url, ozet });
+  }
+  // lite.duckduckgo.com düzeni: <a class="result-link" href="...">başlık</a> + <td class="result-snippet">
+  for (const m of html.matchAll(/<a[^>]*class=['"]result-link['"][^>]*>([\s\S]*?)<\/a>/g)) {
+    const href = m[0].match(/href="([^"]+)"/);
+    if (!href) continue;
+    let url = href[1].replace(/&amp;/g, '&');
+    const u = url.match(/[?&]uddg=([^&]+)/);
+    if (u) {
+      try { url = decodeURIComponent(u[1]); } catch { continue; }
+    }
+    if (url.startsWith('//')) url = 'https:' + url;
+    const baslik = varlikCoz(m[1].replace(/<[^>]*>/g, ' '));
+    if (!/^https?:\/\//.test(url) || !baslik || gorulen.has(url)) continue;
+    gorulen.add(url);
+    sonuc.push({ baslik, url, ozet: '' });
+  }
+  return sonuc;
+}
+
 async function webAra(sorgu, ortam) {
   if (!sorgu) return 'HATA: sorgu boş.';
   const kaynaklar = [
@@ -636,7 +678,25 @@ async function webAra(sorgu, ortam) {
       });
       return r.ok ? ((await r.json()).data || []).map((x) => ({ baslik: x.title, url: x.url, ozet: x.description || '' })) : [];
     }),
-    // Google birincil: anahtarsız, en iyi kapsama; CAPTCHA/429 gelirse sıradakine düşülür
+    // DuckDuckGo birincil: anahtarsız ve sunucudan gelen isteğe gerçek sonuç döndürüyor
+    async () => {
+      for (const adres of [
+        `https://html.duckduckgo.com/html/?q=${encodeURIComponent(sorgu)}`,
+        `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(sorgu)}`,
+      ]) {
+        const r = await fetch(adres, {
+          method: 'POST',
+          headers: { 'User-Agent': UA, 'Accept-Language': 'en,tr;q=0.8', 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'q=' + encodeURIComponent(sorgu),
+          signal: AbortSignal.timeout(WEB_SURE),
+        });
+        if (!r.ok) continue;
+        const liste = ddgAyristir(await r.text());
+        if (liste.length) return liste;
+      }
+      return [];
+    },
+    // Google: CAPTCHA/consent döndürürse sıradakine düşülür
     async () => {
       // consent.google.com yönlendirmesi sonuçsuz sayfa döndürüyor; çerezle kabul edilmiş sayılıyor
       for (const adres of [
