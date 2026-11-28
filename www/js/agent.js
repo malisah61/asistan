@@ -390,8 +390,10 @@ export async function gorevCalistir({ ayar, gh, hafiza, aktifRepo, gecmis, istek
     ui.plan(gorev.plan);
   }
 
-  // 1) Planlayıcı
-  if (ayar.planla !== false && istek.length >= PLAN_ESIGI && !yarimPlan) {
+  // 1) Planlayıcı — yalnızca kod değişikliği gerektiren isteklerde: soru/sohbet isteklerinde
+  // fazladan bir LLM turu harcamamak için önce yerel ön eleme yapılır
+  const planGerekli = istek.length >= PLAN_ESIGI && KOD_ISTEGI.test(istek);
+  if (ayar.planla !== false && planGerekli && !yarimPlan) {
     try {
       const p = await planCikar({ ayar, gh, aktifRepo, istek, gecmis, ui });
       if (p) {
