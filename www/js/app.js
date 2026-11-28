@@ -601,6 +601,7 @@ $('geceKapat').onclick = () => { $('gece').hidden = true; };
 const modelGoster = (m) => (!m || m === OTOMATIK ? '' : m);
 function ayarlariAc() {
   $('ghToken').value = ayar.ghToken;
+  $('geminiKey').value = ayar.geminiKey;
   $('hafizaRepo').value = ayar.hafizaRepo;
   $('asistanRepo').value = ayar.asistanRepo;
   $('model').value = modelGoster(ayar.model?.evren);
