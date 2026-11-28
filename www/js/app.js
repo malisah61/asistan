@@ -615,6 +615,7 @@ function ayarlariAc() {
 
 function formdanOku() {
   ayar.ghToken = $('ghToken').value.trim();
+  ayar.geminiKey = $('geminiKey').value.trim();
   ayar.hafizaRepo = $('hafizaRepo').value.trim();
   ayar.asistanRepo = $('asistanRepo').value.trim();
   const m = (id) => $(id).value.trim() || OTOMATIK;
