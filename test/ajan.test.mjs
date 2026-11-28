@@ -178,6 +178,26 @@ test('retry beklemesi üstel artar: 2 sn → 4 sn → 8 sn', async () => {
   assert.ok(retryBekleme(1) + retryBekleme(2) + retryBekleme(3) < 3 * 8000);
 });
 
+test('aynı kod_ara sorgusu ikinci kez GitHub\'a gitmez', async () => {
+  const { olay } = await calistir([
+    [cagri('kod_ara', { repo: R, sorgu: 'gorevCalistir' })],
+    [cagri('kod_ara', { repo: R, sorgu: 'gorevCalistir' })],
+    'Rapor',
+  ]);
+  assert.equal(olay.filter((x) => x === 'ara gorevCalistir').length, 1, 'aynı arama tek istek olmalı');
+});
+
+test('dosya_agaci ikinci kez GitHub\'a gitmez, yazma sonrası tazelenir', async () => {
+  const { olay } = await calistir([
+    [cagri('dosya_agaci', { repo: R })],
+    [cagri('dosya_agaci', { repo: R })],
+    [cagri('dosya_yaz', { repo: R, yol: 'yeni.gd', dal: 'asistan/x', icerik: 'x', mesaj: 'm' })],
+    [cagri('dosya_agaci', { repo: R })],
+    'Rapor',
+  ]);
+  assert.equal(olay.filter((x) => x === 'agac').length, 2, 'yazma sonrası ağaç tazelenmeli');
+});
+
 test('aynı yanıtta aynı dosya iki kez istenirse API\'ye tek kez gidilir', async () => {
   const { olay } = await calistir([
     [cagri('dosya_oku', { repo: R, yol: 'b.gd' }), cagri('dosya_oku', { repo: R, yol: 'b.gd' })],
