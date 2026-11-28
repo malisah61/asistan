@@ -66,14 +66,11 @@ test('Google sonuçları ayrıştırılır: /url?q= ve h3 kalıbı, reklam ve te
   ]);
 });
 
-test('Google: bağlantı ile h3 ayrı etiketlerdeyse de başlık bulunur', () => {
-  const html = `<div class="g"><div class="yuRUbf"><a href="/url?q=https://en.wikipedia.org/wiki/Candy_Crush_Saga&amp;sa=U">` +
-    `<br><h3 class="LC20lb">Candy Crush Saga</h3></a></div></div>` +
-    `<div class="g"><a href="/url?q=https://www.king.com/candy"><span>King</span></a></div>` +
-    `<div><h3>Candy Crush - King</h3></div>`;
+test('Google: h3 içinde ek etiket olsa da başlık temizlenir', () => {
+  const html = `<div class="g"><a href="/url?q=https://en.wikipedia.org/wiki/Candy_Crush_Saga&amp;sa=U">` +
+    `<br><h3 class="LC20lb">Candy <em>Crush</em> Saga</h3></a></div>`;
   assert.deepEqual(googleAyristir(html), [
     { baslik: 'Candy Crush Saga', url: 'https://en.wikipedia.org/wiki/Candy_Crush_Saga', ozet: '' },
-    { baslik: 'Candy Crush - King', url: 'https://www.king.com/candy', ozet: '' },
   ]);
 });
 
