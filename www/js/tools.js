@@ -576,165 +576,75 @@ async function siparisCiktilari(gh, repo, baslangic) {
 
 // ---------- İnternet ----------
 
-const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
-const WEB_SURE = 30_000;
+const WEB_SURE = 60_000;
 const WEB_PARCA = 9000;
 const ortamDegiskenleri = () => globalThis.process?.env || {};
 
-const varlikCoz = (s) => s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-  .replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&nbsp;/g, ' ').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/\s+/g, ' ').trim();
-
-/** Bing sonuç sayfasını ayrıştırır (anahtar gerekmez; GitHub sunucularından erişilebiliyor). */
-export function bingAyristir(html) {
-  const sonuc = [];
-  for (const parca of html.split('class="b_algo"').slice(1)) {
-    const a = parca.match(/<h2[^>]*>\s*<a [^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
-    if (!a) continue;
-    let url = a[1].replace(/&amp;/g, '&');
-    // Bing yönlendirme linki: ...&u=a1<base64url(gerçek adres)>
-    const u = url.includes('bing.com/ck/') && url.match(/[?&]u=a1([^&]+)/);
-    if (u) {
-      try { url = Buffer.from(u[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'); } catch { continue; }
-    }
-    const ozet = varlikCoz((parca.match(/<p[^>]*>([\s\S]*?)<\/p>/) || [])[1] || '');
-    if (/^https?:\/\//.test(url) && !/^https?:\/\/[^/]*bing\.com\//.test(url)) sonuc.push({ baslik: varlikCoz(a[2]), url, ozet });
-  }
-  return sonuc;
-}
-
-/** Google sonuç sayfasını ayrıştırır. Google HTML'i sık değişir; iki bilinen kalıbı da dener. */
-export function googleAyristir(html) {
-  const sonuc = [];
-  const gorulen = new Set();
-  const ekle = (url, baslik, ozet) => {
-    const temiz = varlikCoz(baslik || '');
-    if (!/^https?:\/\//.test(url) || !temiz || gorulen.has(url)) return;
-    if (/^https?:\/\/(www\.)?google\.[a-z.]+\//.test(url)) return;
-    gorulen.add(url);
-    sonuc.push({ baslik: temiz, url, ozet: varlikCoz(ozet || '') });
-  };
-  // Kalıp 1: /url?q=<adres>&... (klasik sonuç bağlantısı)
-  for (const m of html.matchAll(/<a [^>]*href="\/url\?q=([^"&]+)[^"]*"[^>]*>([\s\S]*?)<\/a>/g)) {
-    ekle(decodeURIComponent(m[1]), m[2], '');
-  }
-  // Kalıp 2: doğrudan https bağlantı + <h3> başlık (yeni düzen)
-  for (const m of html.matchAll(/<a [^>]*href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/g)) {
-    if (!/<h3/i.test(m[2])) continue;
-    ekle(m[1].replace(/&amp;/g, '&'), m[2], '');
-  }
-  return sonuc;
-}
+// Gemini'nin Google Arama ile zenginleştirilmiş yanıtı (grounding)
+const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_URL = (model) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+const ARAMA_YONERGISI = 'Bir web arama asistanısın. Verilen sorguyu Google Arama ile ara ve bulduğun gerçek bilgileri ' +
+  'kaynaklarına dayanarak Türkçe, kısa ve maddeli özetle. Bilgi bulamazsan uydurma, "bulunamadı" de.';
 
 /**
- * DuckDuckGo HTML sonuç sayfasını ayrıştırır. Google/Bing sunucu IP'lerinden CAPTCHA/consent
- * döndürürken bu uç nokta anahtarsız ve sorguya özel sonuç veriyor.
+ * Gemini groundingMetadata yanıtını {ozet, kaynaklar[]} biçimine çevirir.
+ * Yapı sürüme göre değişebiliyor (web.uri / web.title, bazı sürümlerde redirect): savunmacı ayrıştırılır.
  */
-export function ddgAyristir(html) {
-  const sonuc = [];
+export function geminiAyristir(json) {
+  const aday = json?.candidates?.[0];
+  const ozet = (aday?.content?.parts || []).map((p) => p?.text || '').join('').trim();
+  const kaynaklar = [];
   const gorulen = new Set();
-  for (const parca of html.split('class="result__a"').slice(1)) {
-    const a = parca.match(/^\s*[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
-    if (!a) continue;
-    let url = a[1].replace(/&amp;/g, '&');
-    // DDG yönlendirme linki: //duckduckgo.com/l/?uddg=<kodlanmış adres>
-    const u = url.match(/[?&]uddg=([^&]+)/);
-    if (u) {
-      try { url = decodeURIComponent(u[1]); } catch { continue; }
-    }
-    if (url.startsWith('//')) url = 'https:' + url;
-    const baslik = varlikCoz(a[2].replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
-    if (!/^https?:\/\//.test(url) || !baslik || gorulen.has(url)) continue;
-    if (/^https?:\/\/([^/]*\.)?duckduckgo\.com\//.test(url)) continue;
+  for (const parca of aday?.groundingMetadata?.groundingChunks || []) {
+    const web = parca?.web || parca?.retrievedContext || {};
+    const url = web.uri || web.url || web.redirectUri || '';
+    if (!/^https?:\/\//.test(url) || gorulen.has(url)) continue;
     gorulen.add(url);
-    const ozet = varlikCoz((parca.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/) || [])[1] || '');
-    sonuc.push({ baslik, url, ozet });
+    kaynaklar.push({ baslik: (web.title || url).trim(), url });
   }
-  // lite.duckduckgo.com düzeni: <a class="result-link" href="...">başlık</a> + <td class="result-snippet">
-  for (const m of html.matchAll(/<a[^>]*class=['"]result-link['"][^>]*>([\s\S]*?)<\/a>/g)) {
-    const href = m[0].match(/href="([^"]+)"/);
-    if (!href) continue;
-    let url = href[1].replace(/&amp;/g, '&');
-    const u = url.match(/[?&]uddg=([^&]+)/);
-    if (u) {
-      try { url = decodeURIComponent(u[1]); } catch { continue; }
-    }
-    if (url.startsWith('//')) url = 'https:' + url;
-    const baslik = varlikCoz(m[1].replace(/<[^>]*>/g, ' '));
-    if (!/^https?:\/\//.test(url) || !baslik || gorulen.has(url)) continue;
-    gorulen.add(url);
-    sonuc.push({ baslik, url, ozet: '' });
-  }
-  return sonuc;
+  return { ozet, kaynaklar };
 }
 
 async function webAra(sorgu, ortam) {
   if (!sorgu) return 'HATA: sorgu boş.';
-  const kaynaklar = [
-    // İsteğe bağlı: JINA_ANAHTAR secret'ı varsa en temiz sonuç
-    ortam.JINA_ANAHTAR && (async () => {
-      const r = await fetch('https://s.jina.ai/?q=' + encodeURIComponent(sorgu), {
-        headers: { Authorization: `Bearer ${ortam.JINA_ANAHTAR}`, Accept: 'application/json', 'X-Respond-With': 'no-content' },
-        signal: AbortSignal.timeout(WEB_SURE),
-      });
-      return r.ok ? ((await r.json()).data || []).map((x) => ({ baslik: x.title, url: x.url, ozet: x.description || '' })) : [];
-    }),
-    // DuckDuckGo birincil: anahtarsız ve sunucudan gelen isteğe gerçek sonuç döndürüyor
-    async () => {
-      for (const adres of [
-        `https://html.duckduckgo.com/html/?q=${encodeURIComponent(sorgu)}`,
-        `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(sorgu)}`,
-      ]) {
-        const r = await fetch(adres, {
-          method: 'POST',
-          headers: { 'User-Agent': UA, 'Accept-Language': 'en,tr;q=0.8', 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: 'q=' + encodeURIComponent(sorgu),
-          signal: AbortSignal.timeout(WEB_SURE),
-        });
-        if (!r.ok) continue;
-        const liste = ddgAyristir(await r.text());
-        if (liste.length) return liste;
-      }
-      return [];
-    },
-    // Google: CAPTCHA/consent döndürürse sıradakine düşülür
-    async () => {
-      // consent.google.com yönlendirmesi sonuçsuz sayfa döndürüyor; çerezle kabul edilmiş sayılıyor
-      for (const adres of [
-        `https://www.google.com/search?q=${encodeURIComponent(sorgu)}&hl=en&num=10`,
-        `https://www.google.com/search?q=${encodeURIComponent(sorgu)}&hl=en&num=10&gbv=1`,
-      ]) {
-        const r = await fetch(adres, {
-          headers: { 'User-Agent': UA, 'Accept-Language': 'en,tr;q=0.8', Cookie: 'CONSENT=YES+cb; SOCS=CAI' },
-          signal: AbortSignal.timeout(WEB_SURE),
-        });
-        if (!r.ok) continue;
-        const liste = googleAyristir(await r.text());
-        if (liste.length) return liste;
-      }
-      return [];
-    },
-    async () => {
-      const r = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(sorgu)}&setlang=en`, {
-        headers: { 'User-Agent': UA, 'Accept-Language': 'en,tr;q=0.8' }, signal: AbortSignal.timeout(WEB_SURE),
-      });
-      return r.ok ? bingAyristir(await r.text()) : [];
-    },
-    // Yedek: Marginalia açık arama API'si (küçük ama anahtarsız)
-    async () => {
-      const r = await fetch(`https://api.marginalia.nu/public/search/${encodeURIComponent(sorgu)}?count=8`, { signal: AbortSignal.timeout(WEB_SURE) });
-      return r.ok ? ((await r.json()).results || []).map((x) => ({ baslik: x.title, url: x.url, ozet: x.description || '' })) : [];
-    },
-  ].filter(Boolean);
-  let liste = [];
-  for (const k of kaynaklar) {
-    try { liste = await k(); } catch { liste = []; }
-    if (liste.length) break;
+  const anahtar = (ortam.GEMINI_ANAHTAR || '').trim();
+  if (!anahtar) {
+    return 'HATA: Gemini API anahtarı yok. Ayarlar → "İnternet araması" bölümünden anahtarı gir; anahtar olmadan web_ara çalışmaz. ' +
+      'Bu arada bildiğin bir belge adresini web_oku ile doğrudan okuyabilirsin.';
   }
-  if (!liste.length) {
-    return 'Arama sonuç vermedi (arama servisleri isteği engellemiş olabilir). Sorguyu değiştir ya da bildiğin bir belge adresini web_oku ile doğrudan oku.';
+  let r;
+  try {
+    r = await fetch(GEMINI_URL(GEMINI_MODEL), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': anahtar },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: `${ARAMA_YONERGISI}\n\nSorgu: ${sorgu}` }] }],
+        tools: [{ google_search: {} }],
+      }),
+      signal: AbortSignal.timeout(WEB_SURE),
+    });
+  } catch (e) {
+    return `HATA: Gemini aramasına ulaşılamadı (${e.message}). İnternet bağlantısını kontrol et; ` +
+      'tarayıcı CORS engelliyorsa arama yalnızca bulut görevlerinde çalışır.';
   }
-  return liste.slice(0, 8).map((x, i) => `${i + 1}. ${x.baslik}\n   ${x.url}${x.ozet ? '\n   ' + x.ozet.slice(0, 240) : ''}`).join('\n') +
-    '\n\nGerekli sonuçları web_oku ile oku; raporda kullandığın linkleri ver.';
+  const metin = await r.text();
+  if (!r.ok) {
+    let ayrinti = metin.slice(0, 300);
+    try { ayrinti = JSON.parse(metin)?.error?.message || ayrinti; } catch { /* düz metin hata */ }
+    const ipucu = r.status === 400 || r.status === 403 ? ' Anahtar geçersiz ya da bu model için yetkisiz olabilir.' : '';
+    return `HATA: Gemini araması başarısız (HTTP ${r.status}): ${ayrinti}${ipucu}`;
+  }
+  let json;
+  try { json = JSON.parse(metin); } catch { return 'HATA: Gemini yanıtı okunamadı (geçersiz JSON).'; }
+  const { ozet, kaynaklar } = geminiAyristir(json);
+  if (!ozet && !kaynaklar.length) {
+    return 'HATA: Gemini boş yanıt döndü (arama sonucu ya da kaynak yok). Sorguyu değiştirip tekrar dene.';
+  }
+  const kaynakMetni = kaynaklar.length
+    ? kaynaklar.slice(0, 10).map((k, i) => `${i + 1}. ${k.baslik}\n   ${k.url}`).join('\n')
+    : '(kaynak bağlantısı dönmedi)';
+  return `${ozet || '(özet yok)'}\n\nKaynaklar:\n${kaynakMetni}\n\n` +
+    'Gerekli sayfaları web_oku ile derinleştir; raporda kullandığın linkleri ver.';
 }
 
 function htmlMetin(html) {
